@@ -1,0 +1,4 @@
+# 1. 将所有文件视为文本
+# 2. 提交时强制转换为 LF 存入仓库
+# 3. 检出时根据系统自动转换 (Windows 变 CRLF, Mac/Linux 变 LF)
+* text=auto eol=lf
