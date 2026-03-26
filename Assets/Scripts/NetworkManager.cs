@@ -23,7 +23,7 @@ public class NetworkManager : MonoBehaviour
 
     private IEnumerator InitNetwork()
     {
-        _transport = new ReliableUdpTransport("127.0.0.1", 8080);
+        _transport = new KcpTransport("127.0.0.1", 8080);
 
         var startTask = _transport.StartAsync();
         yield return new WaitUntil(() => startTask.IsCompleted);
