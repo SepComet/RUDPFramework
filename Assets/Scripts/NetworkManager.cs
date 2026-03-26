@@ -9,7 +9,7 @@ using Vector3 = UnityEngine.Vector3;
 public class NetworkManager : MonoBehaviour
 {
     public static NetworkManager Instance;
-    private ReliableUdpTransport _transport;
+    private ITransport _transport;
     private MessageManager _messageManager;
     private IPEndPoint _serverPoint;
     private uint _sequence = 0;
@@ -24,10 +24,28 @@ public class NetworkManager : MonoBehaviour
     private IEnumerator InitNetwork()
     {
         _transport = new ReliableUdpTransport("127.0.0.1", 8080);
-        yield return _transport.StartAsync();
+
+        var startTask = _transport.StartAsync();
+        yield return new WaitUntil(() => startTask.IsCompleted);
+
+        if (startTask.IsFaulted)
+        {
+            Debug.LogException(startTask.Exception);
+            yield break;
+        }
+
         _messageManager = new MessageManager(_transport);
         RegisterHandler();
         StartCoroutine(Heartbeat());
+    }
+
+    private void OnDestroy()
+    {
+        _transport?.Stop();
+        if (Instance == this)
+        {
+            Instance = null;
+        }
     }
 
     private IEnumerator Heartbeat()

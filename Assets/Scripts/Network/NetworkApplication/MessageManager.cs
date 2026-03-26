@@ -13,39 +13,53 @@ namespace Network.NetworkApplication
         private readonly ITransport transport;
 
         private readonly Dictionary<MessageType, Func<byte[], IPEndPoint, Task>> handlers =
-            new Dictionary<MessageType, Func<byte[], IPEndPoint, Task>>();
+            new();
 
         public MessageManager(ITransport transport)
         {
-            this.transport = transport;
+            this.transport = transport ?? throw new ArgumentNullException(nameof(transport));
             this.transport.OnReceive += OnTransportReceiveAsync;
         }
 
         public void RegisterHandler(MessageType type, IMessageHandler handler)
         {
-            handlers[type] = async (payload, sender) => { await handler.HandleAsync(payload, sender); };
+            if (handler == null)
+            {
+                throw new ArgumentNullException(nameof(handler));
+            }
+
+            handlers[type] = (payload, sender) => handler.HandleAsync(payload, sender);
 
             Console.WriteLine($"[MessageManager] 注册处理器：{type}");
         }
 
         public void RegisterHandler(MessageType type, Func<byte[], IPEndPoint, Task> handler)
         {
-            var han = new DelegateMessageHandler(handler);
+            if (handler == null)
+            {
+                throw new ArgumentNullException(nameof(handler));
+            }
+
             RegisterHandler(type, new DelegateMessageHandler(handler));
         }
 
         public void RegisterHandler(MessageType type, Action<byte[], IPEndPoint> handler)
         {
-            var han = new DelegateMessageHandler((msg, sender) => { handler(msg, sender); });
-            RegisterHandler(type, new DelegateMessageHandler((msg, sender) =>
+            if (handler == null)
             {
-                handler(msg, sender);
-                return Task.CompletedTask;
-            }));
+                throw new ArgumentNullException(nameof(handler));
+            }
+
+            RegisterHandler(type, new DelegateMessageHandler(handler));
         }
 
         public void SendMessage<T>(T message, MessageType type, IPEndPoint target = null) where T : IMessage
         {
+            if (message == null)
+            {
+                throw new ArgumentNullException(nameof(message));
+            }
+
             var envelope = new Envelope()
             {
                 Type = (int)type,
@@ -66,6 +80,11 @@ namespace Network.NetworkApplication
 
         public void BroadcastMessage<T>(T message, MessageType type) where T : IMessage
         {
+            if (message == null)
+            {
+                throw new ArgumentNullException(nameof(message));
+            }
+
             Console.WriteLine($"[MessageManager] 广播消息：{type}");
             var envelope = new Envelope()
             {
