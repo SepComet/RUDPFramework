@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
@@ -25,6 +26,7 @@ namespace Network.NetworkTransport
         private readonly bool _isServer;
         private readonly IPEndPoint _defaultRemoteEndPoint;
         private readonly uint _defaultConv;
+        private readonly ITransportMetricsModule _metricsModule;
         private readonly ConcurrentDictionary<string, KcpSession> _sessions = new();
         private readonly object _socketSendLock = new();
 
@@ -37,16 +39,17 @@ namespace Network.NetworkTransport
 
         internal int ActiveSessionCount => _sessions.Count;
 
-        public KcpTransport(int listenPort, uint conv = DefaultConv)
+        public KcpTransport(int listenPort, uint conv = DefaultConv, ITransportMetricsModule metricsModule = null)
         {
             _client = new UdpClient(listenPort);
             _isServer = true;
             _defaultConv = conv;
+            _metricsModule = metricsModule ?? new DefaultTransportMetricsModule();
 
             Console.WriteLine($"[KcpTransport] 服务端模式，监听端口: {listenPort}");
         }
 
-        public KcpTransport(string serverIp, int serverPort, uint conv = DefaultConv)
+        public KcpTransport(string serverIp, int serverPort, uint conv = DefaultConv, ITransportMetricsModule metricsModule = null)
         {
             if (string.IsNullOrWhiteSpace(serverIp))
             {
@@ -56,8 +59,14 @@ namespace Network.NetworkTransport
             _client = new UdpClient(0);
             _defaultRemoteEndPoint = new IPEndPoint(IPAddress.Parse(serverIp), serverPort);
             _defaultConv = conv;
+            _metricsModule = metricsModule ?? new DefaultTransportMetricsModule();
 
             Console.WriteLine($"[KcpTransport] 客户端模式，目标: {_defaultRemoteEndPoint}, conv={conv}");
+        }
+
+        public TransportMetricsSnapshot GetMetricsSnapshot()
+        {
+            return _metricsModule.GetCurrentSnapshot();
         }
 
         public Task StartAsync()
@@ -68,6 +77,7 @@ namespace Network.NetworkTransport
             }
 
             _sessions.Clear();
+            _metricsModule.BeginRun(new TransportRunDescriptor(nameof(KcpTransport), _isServer, _defaultRemoteEndPoint));
             _cancellationTokenSource = new CancellationTokenSource();
             _isRunning = true;
 
@@ -97,6 +107,7 @@ namespace Network.NetworkTransport
             DisposeAllSessions();
             _cancellationTokenSource?.Dispose();
             _cancellationTokenSource = null;
+            _metricsModule.CompleteRun();
 
             Console.WriteLine("[KcpTransport] 传输层停止");
         }
@@ -133,6 +144,7 @@ namespace Network.NetworkTransport
 
             var session = GetOrCreateSession(target, _defaultConv);
             session.Send(data);
+            _metricsModule.RecordPayloadSent(session.RemoteEndPoint, data.Length);
         }
 
         public void SendToAll(byte[] data)
@@ -152,6 +164,7 @@ namespace Network.NetworkTransport
             foreach (var session in _sessions.Values)
             {
                 session.Send(data);
+                _metricsModule.RecordPayloadSent(session.RemoteEndPoint, data.Length);
             }
         }
 
@@ -162,6 +175,7 @@ namespace Network.NetworkTransport
                 try
                 {
                     var result = await _client.ReceiveAsync();
+                    _metricsModule.RecordDatagramReceived(result.RemoteEndPoint, result.Buffer.Length);
                     var session = GetOrCreateSession(result.RemoteEndPoint, ResolveConv(result.Buffer));
                     session.Input(result.Buffer);
                     DrainReceivedMessages(session);
@@ -176,6 +190,7 @@ namespace Network.NetworkTransport
                 }
                 catch (Exception exception)
                 {
+                    _metricsModule.RecordError("socket-receive", null, exception.Message);
                     Console.WriteLine($"[KcpTransport] 接收错误：{exception.Message}");
                 }
             }
@@ -208,6 +223,7 @@ namespace Network.NetworkTransport
         {
             while (session.TryReceive(out var payload))
             {
+                _metricsModule.RecordPayloadReceived(session.RemoteEndPoint, payload.Length);
                 OnReceive?.Invoke(payload, session.RemoteEndPoint);
             }
         }
@@ -217,7 +233,20 @@ namespace Network.NetworkTransport
             var normalizedEndPoint = NormalizeEndPoint(remoteEndPoint);
             var key = normalizedEndPoint.ToString();
 
-            return _sessions.GetOrAdd(key, _ => new KcpSession(this, normalizedEndPoint, conv));
+            if (_sessions.TryGetValue(key, out var existing))
+            {
+                return existing;
+            }
+
+            var created = new KcpSession(this, normalizedEndPoint, conv);
+            if (_sessions.TryAdd(key, created))
+            {
+                _metricsModule.RecordSessionOpened(created.RemoteEndPoint);
+                return created;
+            }
+
+            created.Dispose();
+            return _sessions[key];
         }
 
         private IPEndPoint NormalizeEndPoint(IPEndPoint remoteEndPoint)
@@ -276,6 +305,7 @@ namespace Network.NetworkTransport
             {
                 foreach (var innerException in exception.InnerExceptions)
                 {
+                    _metricsModule.RecordError("stop-wait", null, innerException.Message);
                     Console.WriteLine($"[KcpTransport] 停止等待错误：{innerException.Message}");
                 }
             }
@@ -283,12 +313,14 @@ namespace Network.NetworkTransport
 
         private void DisposeAllSessions()
         {
-            foreach (var pair in _sessions)
-            {
-                pair.Value.Dispose();
-            }
-
+            var sessions = _sessions.Values.ToArray();
             _sessions.Clear();
+
+            foreach (var session in sessions)
+            {
+                session.Dispose();
+                _metricsModule.RecordSessionClosed(session.RemoteEndPoint);
+            }
         }
 
         private unsafe int SendDatagram(byte* buffer, int length, IPEndPoint remoteEndPoint)
@@ -305,7 +337,9 @@ namespace Network.NetworkTransport
             {
                 lock (_socketSendLock)
                 {
-                    return _client.Send(datagram, datagram.Length, remoteEndPoint);
+                    var bytes = _client.Send(datagram, datagram.Length, remoteEndPoint);
+                    _metricsModule.RecordDatagramSent(remoteEndPoint, bytes);
+                    return bytes;
                 }
             }
             catch (ObjectDisposedException) when (!_isRunning)
@@ -314,11 +348,15 @@ namespace Network.NetworkTransport
             }
             catch (SocketException exception)
             {
+                _metricsModule.RecordError("socket-send", remoteEndPoint, exception.Message);
                 Console.WriteLine($"[KcpTransport] 发送错误：{exception.Message}");
                 return -1;
             }
         }
 
-       
+        private void RecordTransportError(string stage, IPEndPoint remoteEndPoint, string detail)
+        {
+            _metricsModule.RecordError(stage, remoteEndPoint, detail);
+        }
     }
 }

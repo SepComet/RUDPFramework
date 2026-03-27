@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
@@ -180,6 +181,114 @@ namespace Tests.EditMode.Network
             Assert.DoesNotThrow(() => transport.Stop());
         }
 
+        [Test]
+        public void DefaultTransportMetricsModule_CompleteRun_IsIdempotentAndWritesSingleReport()
+        {
+            var reportDirectory = CreateReportDirectory();
+            var consoleWriter = new StringWriter();
+
+            try
+            {
+                var module = new DefaultTransportMetricsModule(reportDirectory, consoleWriter: consoleWriter);
+                var remote = new IPEndPoint(IPAddress.Loopback, 5001);
+
+                module.BeginRun(new TransportRunDescriptor(nameof(KcpTransport), isServer: false, defaultRemoteEndPoint: remote));
+                module.RecordSessionOpened(remote);
+                module.RecordPayloadSent(remote, 64);
+                module.RecordDatagramSent(remote, 96);
+                module.RecordError("socket-send", remote, "simulated");
+                module.RecordSessionClosed(remote);
+
+                var first = module.CompleteRun();
+                var second = module.CompleteRun();
+                var reportFiles = Directory.GetFiles(reportDirectory, "*.json");
+                var reportText = File.ReadAllText(reportFiles[0]);
+
+                Assert.That(reportFiles, Has.Length.EqualTo(1));
+                Assert.That(first.ReportPath, Is.EqualTo(reportFiles[0]));
+                Assert.That(second.ReportPath, Is.EqualTo(first.ReportPath));
+                Assert.That(first.SessionsCreated, Is.EqualTo(1));
+                Assert.That(first.SessionsClosed, Is.EqualTo(1));
+                Assert.That(first.ErrorCountsByStage["socket-send"], Is.EqualTo(1));
+                Assert.That(reportText, Does.Contain(Environment.NewLine));
+                Assert.That(reportText, Does.Contain("  \"RunId\""));
+                Assert.That(consoleWriter.ToString(), Does.Contain("[TransportMetrics] KcpTransport"));
+            }
+            finally
+            {
+                DeleteDirectory(reportDirectory);
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator MetricsSnapshot_TracksMultiplePeers_AndExportsOnceOnStop()
+        {
+            return RunAsync(MetricsSnapshot_TracksMultiplePeers_AndExportsOnceOnStopAsync);
+        }
+
+        private static async Task MetricsSnapshot_TracksMultiplePeers_AndExportsOnceOnStopAsync()
+        {
+            var listenPort = GetAvailableUdpPort();
+            var serverReportDirectory = CreateReportDirectory();
+            var clientAReportDirectory = CreateReportDirectory();
+            var clientBReportDirectory = CreateReportDirectory();
+            var serverMetrics = new DefaultTransportMetricsModule(serverReportDirectory, consoleWriter: new StringWriter());
+            var clientAMetrics = new DefaultTransportMetricsModule(clientAReportDirectory, consoleWriter: new StringWriter());
+            var clientBMetrics = new DefaultTransportMetricsModule(clientBReportDirectory, consoleWriter: new StringWriter());
+            var server = new KcpTransport(listenPort, metricsModule: serverMetrics);
+            var clientA = new KcpTransport(IPAddress.Loopback.ToString(), listenPort, metricsModule: clientAMetrics);
+            var clientB = new KcpTransport(IPAddress.Loopback.ToString(), listenPort, metricsModule: clientBMetrics);
+            var received = new ConcurrentQueue<(byte[] Payload, IPEndPoint Sender)>();
+            var allMessagesTask = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            server.OnReceive += (data, sender) =>
+            {
+                received.Enqueue((data, sender));
+                if (received.Count >= 2)
+                {
+                    allMessagesTask.TrySetResult(true);
+                }
+            };
+
+            try
+            {
+                await server.StartAsync();
+                await clientA.StartAsync();
+                await clientB.StartAsync();
+
+                clientA.Send(CreatePayload(128, seed: 91));
+                clientB.Send(CreatePayload(256, seed: 117));
+
+                await WaitFor(allMessagesTask.Task, "Timed out waiting for metrics traffic from both clients.");
+                await Task.Delay(200);
+
+                var liveSnapshot = server.GetMetricsSnapshot();
+                Assert.That(liveSnapshot.PayloadMessagesReceived, Is.EqualTo(2));
+                Assert.That(liveSnapshot.PeakActiveSessions, Is.EqualTo(2));
+                Assert.That(liveSnapshot.PeerSummaries, Has.Count.EqualTo(2));
+                Assert.That(liveSnapshot.PeerSummaries.Sum(peer => peer.PayloadMessagesReceived), Is.EqualTo(2));
+                Assert.That(liveSnapshot.PeerSummaries.Select(peer => peer.RemoteEndPoint).Distinct().Count(), Is.EqualTo(2));
+
+                server.Stop();
+                clientA.Stop();
+                clientB.Stop();
+
+                var completedSnapshot = server.GetMetricsSnapshot();
+                Assert.That(completedSnapshot.ReportPath, Is.Not.Null.And.Not.Empty);
+                Assert.That(Directory.GetFiles(serverReportDirectory, "*.json"), Has.Length.EqualTo(1));
+                Assert.That(completedSnapshot.ActiveSessions, Is.EqualTo(0));
+                Assert.That(completedSnapshot.SessionsClosed, Is.EqualTo(2));
+            }
+            finally
+            {
+                clientA.Stop();
+                clientB.Stop();
+                server.Stop();
+                DeleteDirectory(serverReportDirectory);
+                DeleteDirectory(clientAReportDirectory);
+                DeleteDirectory(clientBReportDirectory);
+            }
+        }
         private static async Task<T> WaitFor<T>(Task<T> task, string failureMessage)
         {
             var completedTask = await Task.WhenAny(task, Task.Delay(DefaultTimeoutMs));
@@ -242,6 +351,18 @@ namespace Tests.EditMode.Network
             return bytes;
         }
 
+        private static string CreateReportDirectory()
+        {
+            return Path.Combine(Directory.GetCurrentDirectory(), "Logs", "transport-metrics-tests", Guid.NewGuid().ToString("N"));
+        }
+
+        private static void DeleteDirectory(string path)
+        {
+            if (!string.IsNullOrWhiteSpace(path) && Directory.Exists(path))
+            {
+                Directory.Delete(path, recursive: true);
+            }
+        }
         private static int GetAvailableUdpPort()
         {
             using var client = new UdpClient(0);

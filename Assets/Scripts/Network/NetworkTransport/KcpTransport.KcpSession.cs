@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Net;
 using System.Runtime.InteropServices;
 using kcp;
@@ -61,6 +61,7 @@ namespace Network.NetworkTransport
                         var result = KCP.ikcp_send(_kcp, buffer, payload.Length);
                         if (result < 0)
                         {
+                            _owner.RecordTransportError("kcp-send", RemoteEndPoint, $"KCP send failed with error code {result}.");
                             throw new InvalidOperationException($"KCP send failed with error code {result}.");
                         }
                     }
@@ -91,6 +92,7 @@ namespace Network.NetworkTransport
                         var result = KCP.ikcp_input(_kcp, buffer, datagram.Length);
                         if (result < 0)
                         {
+                            _owner.RecordTransportError("kcp-input", RemoteEndPoint, $"KCP input failed with error code {result}.");
                             Console.WriteLine($"[KcpTransport] KCP input failed for {RemoteEndPoint}: {result}");
                             return;
                         }
@@ -125,6 +127,7 @@ namespace Network.NetworkTransport
                         var result = KCP.ikcp_recv(_kcp, buffer, payload.Length);
                         if (result < 0)
                         {
+                            _owner.RecordTransportError("kcp-recv", RemoteEndPoint, $"KCP recv failed with error code {result}.");
                             payload = null;
                             return false;
                         }
