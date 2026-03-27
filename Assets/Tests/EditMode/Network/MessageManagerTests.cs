@@ -55,6 +55,32 @@ namespace Tests.EditMode.Network
         }
 
         [Test]
+        public void SendMessage_PlayerInput_UsesSyncLanePolicy()
+        {
+            var reliableTransport = new FakeTransport();
+            var syncTransport = new FakeTransport();
+            var manager = new MessageManager(
+                reliableTransport,
+                new MainThreadNetworkDispatcher(),
+                new DefaultMessageDeliveryPolicyResolver(),
+                syncTransport);
+            var message = new PlayerInput
+            {
+                PlayerId = "player-1",
+                Tick = 12
+            };
+
+            manager.SendMessage(message, MessageType.PlayerInput);
+
+            Assert.That(reliableTransport.SendCallCount, Is.EqualTo(0));
+            Assert.That(syncTransport.SendCallCount, Is.EqualTo(1));
+
+            var envelope = Envelope.Parser.ParseFrom(syncTransport.LastSentData);
+            Assert.That(envelope.Type, Is.EqualTo((int)MessageType.PlayerInput));
+            Assert.That(PlayerInput.Parser.ParseFrom(envelope.Payload).Tick, Is.EqualTo(12));
+        }
+
+        [Test]
         public void BroadcastMessage_UsesBroadcastSend()
         {
             var transport = new FakeTransport();
@@ -156,6 +182,31 @@ namespace Tests.EditMode.Network
             manager.DrainPendingMessagesAsync().GetAwaiter().GetResult();
 
             Assert.That(handledSpeeds, Is.EqualTo(new[] { 1, 2 }));
+        }
+
+        [Test]
+        public void Receive_StalePlayerState_IsDropped()
+        {
+            var transport = new FakeTransport();
+            var manager = new MessageManager(transport, new MainThreadNetworkDispatcher());
+            var handledTicks = new List<long>();
+
+            manager.RegisterHandler(MessageType.PlayerState, (payload, sender) =>
+            {
+                handledTicks.Add(PlayerState.Parser.ParseFrom(payload).Tick);
+            });
+
+            transport.EmitReceive(
+                BuildEnvelope(MessageType.PlayerState, new PlayerState { PlayerId = "player-1", Tick = 8 }),
+                Sender);
+            manager.DrainPendingMessagesAsync().GetAwaiter().GetResult();
+
+            transport.EmitReceive(
+                BuildEnvelope(MessageType.PlayerState, new PlayerState { PlayerId = "player-1", Tick = 6 }),
+                Sender);
+            manager.DrainPendingMessagesAsync().GetAwaiter().GetResult();
+
+            Assert.That(handledTicks, Is.EqualTo(new long[] { 8 }));
         }
 
         private static byte[] BuildEnvelope(MessageType type, IMessage payload)

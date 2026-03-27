@@ -47,12 +47,17 @@ The transport SHALL continue driving KCP timers for every active session while i
 - **THEN** the transport stops receiving new UDP datagrams
 - **THEN** the transport clears its active KCP session state before shutdown completes
 ### Requirement: KCP is the sole reliable transport implementation
-The project SHALL expose `KcpTransport` as the only reliable `ITransport` implementation used by runtime networking paths. Reliable business messages, including login, heartbeat, player input, and player state synchronization, MUST continue to flow through KCP-backed sessions rather than any legacy reliable UDP compatibility class.
+The project SHALL expose `KcpTransport` as the only reliable `ITransport` implementation used by runtime networking paths. Reliable control-plane business messages, including login, logout, heartbeat, and other ordered session-management traffic, MUST continue to flow through KCP-backed sessions, while high-frequency `PlayerInput` and `PlayerState` synchronization MAY use a separate sync lane defined by the sync-strategy capability.
 
-#### Scenario: Runtime networking uses KCP for reliable delivery
-- **WHEN** the application constructs the transport used by `MessageManager` for its normal runtime networking path
+#### Scenario: Runtime networking uses KCP for reliable control delivery
+- **WHEN** the application constructs the reliable transport used for login and session control traffic
 - **THEN** that transport instance is `KcpTransport`
-- **THEN** reliable business payloads are sent and received through KCP session state
+- **THEN** reliable control payloads are sent and received through KCP session state
+
+#### Scenario: High-frequency sync is allowed to bypass reliable ordered delivery
+- **WHEN** the runtime routes `PlayerInput` or `PlayerState` according to the high-frequency sync strategy
+- **THEN** those messages are not forced to use the reliable ordered KCP lane
+- **THEN** reliable KCP delivery remains available for control-plane traffic
 
 ### Requirement: Legacy reliable UDP entry points are retired
 The codebase SHALL NOT keep a directly instantiable `ReliableUdpTransport` entry point that implies a second reliable delivery mechanism. If a non-reliable UDP transport is needed in the future, it MUST use a distinct name and MUST NOT claim reliable semantics.

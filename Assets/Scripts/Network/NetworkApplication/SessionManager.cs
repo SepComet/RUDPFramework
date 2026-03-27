@@ -32,8 +32,6 @@ namespace Network.NetworkApplication
 
         public TimeSpan? LastRoundTripTime { get; private set; }
 
-        public long? LastServerTick { get; private set; }
-
         public string LastFailureReason { get; private set; }
 
         public bool CanSendHeartbeat => State == ConnectionState.LoggedIn;
@@ -104,11 +102,10 @@ namespace Network.NetworkApplication
             RaiseEvent(SessionEventKind.HeartbeatSent, State, State, lastHeartbeatSentUtc.Value);
         }
 
-        public void NotifyHeartbeatReceived(long? serverTick = null)
+        public void NotifyHeartbeatReceived()
         {
             var now = utcNowProvider();
             lastLivenessUtc = now;
-            LastServerTick = serverTick;
             if (lastHeartbeatSentUtc.HasValue)
             {
                 LastRoundTripTime = now - lastHeartbeatSentUtc.Value;

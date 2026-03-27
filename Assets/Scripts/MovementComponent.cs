@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Network.Defines;
+using Network.NetworkApplication;
 using UnityEngine;
 using Vector3 = UnityEngine.Vector3;
 
@@ -19,7 +20,7 @@ public class MovementComponent : MonoBehaviour
     public long Tick { get; private set; } = 0;
     private long _startTickOffset = 0;
     private long _currentTickOffset = 0;
-    private readonly List<PlayerInput> _inputBuffer = new List<PlayerInput>();
+    private readonly ClientPredictionBuffer _predictionBuffer = new ClientPredictionBuffer();
 
     private Vector3 _serverPos;
     private Vector3 _currentPos;
@@ -72,9 +73,9 @@ public class MovementComponent : MonoBehaviour
             }
 
             Simulate(_cachedInput);
-            if (_cachedInput != null && (_inputBuffer.Count == 0 || _inputBuffer[_inputBuffer.Count - 1].Tick != _cachedInput.Tick))
+            if (_cachedInput != null)
             {
-                _inputBuffer.Add(_cachedInput);
+                _predictionBuffer.Record(_cachedInput);
             }
         }
         else
@@ -86,10 +87,15 @@ public class MovementComponent : MonoBehaviour
 
     private void Reconcile(PlayerState state)
     {
+        if (!_predictionBuffer.TryApplyAuthoritativeState(state, out var replayInputs))
+        {
+            return;
+        }
+
         _serverPosition = state.Position.ToVector3();
         _rigid.position = Vector3.Lerp(_rigid.position, _serverPosition, _lerpRate);
         _rigid.velocity = Vector3.zero;
-        _inputBuffer.RemoveAll(i => i.Tick <= state.Tick);
+        ReplayPendingInputs(replayInputs);
     }
 
     private PlayerInput CaptureInput()
@@ -118,11 +124,23 @@ public class MovementComponent : MonoBehaviour
     {
         if (_isControlled)
         {
+            if (_predictionBuffer.LastAuthoritativeTick.HasValue &&
+                state.Tick <= _predictionBuffer.LastAuthoritativeTick.Value)
+            {
+                return;
+            }
+
             _lastServerState = state;
             _hasServerState = true;
         }
         else
         {
+            if (_lastServerState != null && state.Tick < _lastServerState.Tick)
+            {
+                return;
+            }
+
+            _lastServerState = state;
             _serverPos = state.Position.ToVector3();
             _currentPos = _rigid.position;
             _lerpTime = 0f;
@@ -144,6 +162,19 @@ public class MovementComponent : MonoBehaviour
         if (_currentTickOffset > 0)
         {
             _sendInterval = 0.048f;
+        }
+    }
+
+    private void ReplayPendingInputs(IReadOnlyList<PlayerInput> replayInputs)
+    {
+        foreach (var replayInput in replayInputs)
+        {
+            _rigid.position += _speed * replayInput.Input.ToVector3() * _sendInterval;
+        }
+
+        if (_isControlled)
+        {
+            MainUI.Instance.OnClientPosChanged(_rigid.position);
         }
     }
 }

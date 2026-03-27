@@ -10,17 +10,58 @@ namespace Network.NetworkApplication
 {
     public class MessageManager
     {
-        private readonly ITransport transport;
+        private readonly INetworkMessageLane reliableLane;
+        private readonly INetworkMessageLane syncLane;
         private readonly INetworkMessageDispatcher dispatcher;
+        private readonly IMessageDeliveryPolicyResolver deliveryPolicyResolver;
+        private readonly SyncSequenceTracker syncSequenceTracker;
 
         private readonly Dictionary<MessageType, Func<byte[], IPEndPoint, Task>> handlers =
             new();
 
         public MessageManager(ITransport transport, INetworkMessageDispatcher dispatcher)
+            : this(
+                CreateLane(transport),
+                dispatcher,
+                new DefaultMessageDeliveryPolicyResolver(),
+                null,
+                new SyncSequenceTracker())
         {
-            this.transport = transport ?? throw new ArgumentNullException(nameof(transport));
+        }
+
+        public MessageManager(
+            ITransport reliableTransport,
+            INetworkMessageDispatcher dispatcher,
+            IMessageDeliveryPolicyResolver deliveryPolicyResolver,
+            ITransport syncTransport = null,
+            SyncSequenceTracker syncSequenceTracker = null)
+            : this(
+                CreateLane(reliableTransport),
+                dispatcher,
+                deliveryPolicyResolver,
+                CreateLaneIfDistinct(reliableTransport, syncTransport),
+                syncSequenceTracker)
+        {
+        }
+
+        public MessageManager(
+            INetworkMessageLane reliableLane,
+            INetworkMessageDispatcher dispatcher,
+            IMessageDeliveryPolicyResolver deliveryPolicyResolver = null,
+            INetworkMessageLane syncLane = null,
+            SyncSequenceTracker syncSequenceTracker = null)
+        {
+            this.reliableLane = reliableLane ?? throw new ArgumentNullException(nameof(reliableLane));
             this.dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
-            this.transport.OnReceive += OnTransportReceive;
+            this.deliveryPolicyResolver = deliveryPolicyResolver ?? new DefaultMessageDeliveryPolicyResolver();
+            this.syncLane = syncLane;
+            this.syncSequenceTracker = syncSequenceTracker ?? new SyncSequenceTracker();
+
+            this.reliableLane.Received += OnTransportReceive;
+            if (this.syncLane != null && !ReferenceEquals(this.syncLane, this.reliableLane))
+            {
+                this.syncLane.Received += OnTransportReceive;
+            }
         }
 
         public INetworkMessageDispatcher Dispatcher => dispatcher;
@@ -71,14 +112,15 @@ namespace Network.NetworkApplication
                 Type = (int)type,
                 Payload = message.ToByteString()
             };
+            var lane = ResolveLane(type);
 
             if (target != null)
             {
-                transport.SendTo(envelope.ToByteArray(), target);
+                lane.SendTo(envelope.ToByteArray(), target);
             }
             else
             {
-                transport.Send(envelope.ToByteArray());
+                lane.Send(envelope.ToByteArray());
             }
 
             Console.WriteLine($"[MessageManager] 发送消息：{type} -> {target?.ToString() ?? "default"}");
@@ -97,7 +139,7 @@ namespace Network.NetworkApplication
                 Type = (int)type,
                 Payload = message.ToByteString()
             };
-            transport.SendToAll(envelope.ToByteArray());
+            ResolveLane(type).SendToAll(envelope.ToByteArray());
         }
 
         public Task<int> DrainPendingMessagesAsync(int maxMessages = int.MaxValue)
@@ -112,10 +154,16 @@ namespace Network.NetworkApplication
                 var envelope = Envelope.Parser.ParseFrom(data);
                 var type = (MessageType)envelope.Type;
                 Console.WriteLine($"[MessageManager] 收到消息：{type} 来自 {sender}");
+                var payload = envelope.Payload.ToByteArray();
+
+                if (!syncSequenceTracker.ShouldAccept(type, payload, sender))
+                {
+                    Console.WriteLine($"[MessageManager] 丢弃过期同步消息：{type} 来自 {sender}");
+                    return;
+                }
 
                 if (handlers.TryGetValue(type, out var handler))
                 {
-                    var payload = envelope.Payload.ToByteArray();
                     dispatcher.Enqueue(() => DispatchAsync(handler, payload, sender, type));
                 }
                 else
@@ -143,6 +191,31 @@ namespace Network.NetworkApplication
             {
                 Console.WriteLine($"[MessageManager] Handler 执行错误：{type} -> {ex.Message}");
             }
+        }
+
+        private INetworkMessageLane ResolveLane(MessageType type)
+        {
+            var policy = deliveryPolicyResolver.Resolve(type);
+            return policy == DeliveryPolicy.HighFrequencySync && syncLane != null
+                ? syncLane
+                : reliableLane;
+        }
+
+        private static INetworkMessageLane CreateLane(ITransport transport)
+        {
+            return new TransportMessageLane(transport ?? throw new ArgumentNullException(nameof(transport)));
+        }
+
+        private static INetworkMessageLane CreateLaneIfDistinct(ITransport reliableTransport, ITransport syncTransport)
+        {
+            if (syncTransport == null)
+            {
+                return null;
+            }
+
+            return ReferenceEquals(reliableTransport, syncTransport)
+                ? null
+                : CreateLane(syncTransport);
         }
     }
 }

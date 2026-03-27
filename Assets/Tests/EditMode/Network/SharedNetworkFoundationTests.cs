@@ -75,6 +75,32 @@ namespace Tests.EditMode.Network
             Assert.That(transport.LastSendTarget, Is.EqualTo(Sender));
         }
 
+        [Test]
+        public void SharedNetworkRuntime_RoutesSyncMessagesThroughConfiguredSyncLane()
+        {
+            var reliableTransport = new FakeTransport();
+            var syncTransport = new FakeTransport();
+            var runtime = new SharedNetworkRuntime(
+                reliableTransport,
+                new ImmediateNetworkMessageDispatcher(),
+                syncTransport: syncTransport);
+            var message = new PlayerInput
+            {
+                PlayerId = "shared-player",
+                Tick = 33
+            };
+
+            runtime.MessageManager.SendMessage(message, MessageType.PlayerInput);
+
+            Assert.That(reliableTransport.SendCallCount, Is.EqualTo(0));
+            Assert.That(syncTransport.SendCallCount, Is.EqualTo(1));
+            Assert.That(syncTransport.LastSentData, Is.Not.Null);
+
+            var envelope = Envelope.Parser.ParseFrom(syncTransport.LastSentData);
+            Assert.That(envelope.Type, Is.EqualTo((int)MessageType.PlayerInput));
+            Assert.That(PlayerInput.Parser.ParseFrom(envelope.Payload).Tick, Is.EqualTo(33));
+        }
+
         private static byte[] BuildEnvelope(MessageType type, IMessage payload)
         {
             return new Envelope
@@ -86,9 +112,13 @@ namespace Tests.EditMode.Network
 
         private sealed class FakeTransport : ITransport
         {
+            public byte[] LastSentData { get; private set; }
+
             public byte[] LastSendToData { get; private set; }
 
             public IPEndPoint LastSendTarget { get; private set; }
+
+            public int SendCallCount { get; private set; }
 
             public event Action<byte[], IPEndPoint> OnReceive;
 
@@ -103,6 +133,8 @@ namespace Tests.EditMode.Network
 
             public void Send(byte[] data)
             {
+                SendCallCount++;
+                LastSentData = Copy(data);
             }
 
             public void SendTo(byte[] data, IPEndPoint target)

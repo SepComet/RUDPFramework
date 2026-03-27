@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Net;
 using System.Runtime.InteropServices;
 using kcp;
@@ -16,6 +17,9 @@ namespace Network.NetworkTransport
             private IKCPCB* _kcp;
             private bool _disposed;
             private uint _nextUpdateAt;
+            private readonly Dictionary<uint, uint> _observedSegmentXmitBySequence = new();
+            private long _observedRetransmissionSends;
+            private long _observedLossSignals;
 
             public KcpSession(KcpTransport owner, IPEndPoint remoteEndPoint, uint conv)
             {
@@ -32,6 +36,7 @@ namespace Network.NetworkTransport
                 KCP.ikcp_setmtu(_kcp, DefaultMtu);
 
                 _nextUpdateAt = GetCurrentTimeMilliseconds();
+                _owner.RecordSessionDiagnostics(this, "active");
             }
 
             public uint Conv { get; }
@@ -68,6 +73,7 @@ namespace Network.NetworkTransport
 
                     LastActivityUtc = DateTime.UtcNow;
                     UpdateNoLock(GetCurrentTimeMilliseconds());
+                    _owner.RecordSessionDiagnostics(this, "active");
                 }
             }
 
@@ -100,6 +106,7 @@ namespace Network.NetworkTransport
 
                     LastActivityUtc = DateTime.UtcNow;
                     UpdateNoLock(GetCurrentTimeMilliseconds());
+                    _owner.RecordSessionDiagnostics(this, "active");
                 }
             }
 
@@ -139,6 +146,7 @@ namespace Network.NetworkTransport
                     }
 
                     LastActivityUtc = DateTime.UtcNow;
+                    _owner.RecordSessionDiagnostics(this, "active");
                     return true;
                 }
             }
@@ -158,6 +166,81 @@ namespace Network.NetworkTransport
                     }
 
                     UpdateNoLock(current);
+                    _owner.RecordSessionDiagnostics(this, "active");
+                }
+            }
+
+            public TransportSessionDiagnosticsSnapshot CaptureDiagnostics(string lifecycleState)
+            {
+                lock (_gate)
+                {
+                    var now = DateTimeOffset.UtcNow;
+                    if (_disposed || _kcp == null)
+                    {
+                        return new TransportSessionDiagnosticsSnapshot
+                        {
+                            LifecycleState = lifecycleState,
+                            ObservedAtUtc = now,
+                            IdleMs = Math.Max(0L, (long)(now - LastActivityUtc).TotalMilliseconds)
+                        };
+                    }
+
+                    var retransmittedSegmentsInFlight = 0;
+                    var observedRetransmissionDelta = 0L;
+                    var head = &_kcp->snd_buf;
+
+                    for (var node = head->next; node != head; node = node->next)
+                    {
+                        var segment = (IKCPSEG*)node;
+                        var currentXmit = Math.Max(0u, segment->xmit);
+                        _observedSegmentXmitBySequence.TryGetValue(segment->sn, out var observedXmit);
+                        var baselineXmit = observedXmit == 0 ? 1u : observedXmit;
+                        if (currentXmit > baselineXmit)
+                        {
+                            observedRetransmissionDelta += currentXmit - baselineXmit;
+                        }
+
+                        if (currentXmit > observedXmit)
+                        {
+                            _observedSegmentXmitBySequence[segment->sn] = currentXmit;
+                        }
+
+                        if (currentXmit > 1)
+                        {
+                            retransmittedSegmentsInFlight++;
+                        }
+                    }
+
+                    if (observedRetransmissionDelta > 0)
+                    {
+                        _observedRetransmissionSends += observedRetransmissionDelta;
+                        _observedLossSignals += observedRetransmissionDelta;
+                    }
+
+                    return new TransportSessionDiagnosticsSnapshot
+                    {
+                        LifecycleState = lifecycleState,
+                        ObservedAtUtc = now,
+                        IdleMs = Math.Max(0L, (long)(now - LastActivityUtc).TotalMilliseconds),
+                        KcpStateCode = unchecked((int)_kcp->state),
+                        SmoothedRttMs = Math.Max(0, _kcp->rx_srtt),
+                        RttVarianceMs = Math.Max(0, _kcp->rx_rttval),
+                        RetransmissionTimeoutMs = Math.Max(0, _kcp->rx_rto),
+                        LocalSendWindow = checked((int)_kcp->snd_wnd),
+                        LocalReceiveWindow = checked((int)_kcp->rcv_wnd),
+                        RemoteWindow = checked((int)_kcp->rmt_wnd),
+                        CongestionWindow = checked((int)_kcp->cwnd),
+                        WaitSendCount = Math.Max(0, KCP.ikcp_waitsnd(_kcp)),
+                        SendQueueCount = checked((int)_kcp->nsnd_que),
+                        SendBufferCount = checked((int)_kcp->nsnd_buf),
+                        ReceiveQueueCount = checked((int)_kcp->nrcv_que),
+                        ReceiveBufferCount = checked((int)_kcp->nrcv_buf),
+                        DeadLinkThreshold = checked((int)_kcp->dead_link),
+                        SegmentTransmitCount = _kcp->xmit,
+                        RetransmittedSegmentsInFlight = retransmittedSegmentsInFlight,
+                        ObservedRetransmissionSends = _observedRetransmissionSends,
+                        ObservedLossSignals = _observedLossSignals
+                    };
                 }
             }
 

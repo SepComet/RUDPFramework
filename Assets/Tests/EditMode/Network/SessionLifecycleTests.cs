@@ -72,7 +72,7 @@ namespace Tests.EditMode.Network
         }
 
         [Test]
-        public void HeartbeatResponse_UpdatesRttAndServerTick_WithoutChangingLoggedInState()
+        public void HeartbeatResponse_UpdatesRttAndClockSync_WithoutChangingLoggedInState()
         {
             var clock = new MutableClock(new DateTimeOffset(2026, 3, 27, 0, 0, 0, TimeSpan.Zero));
             var transport = new FakeTransport();
@@ -88,7 +88,30 @@ namespace Tests.EditMode.Network
 
             Assert.That(runtime.SessionManager.State, Is.EqualTo(ConnectionState.LoggedIn));
             Assert.That(runtime.SessionManager.LastRoundTripTime, Is.EqualTo(TimeSpan.FromMilliseconds(120)));
-            Assert.That(runtime.SessionManager.LastServerTick, Is.EqualTo(321));
+            Assert.That(runtime.ClockSync.CurrentServerTick, Is.EqualTo(321));
+        }
+
+        [Test]
+        public void SharedNetworkRuntime_PublishesLifecycleSnapshotsToMetricsSink()
+        {
+            var clock = new MutableClock(new DateTimeOffset(2026, 3, 27, 0, 0, 0, TimeSpan.Zero));
+            var transport = new FakeTransport();
+            var runtime = new SharedNetworkRuntime(transport, new ImmediateNetworkMessageDispatcher(), utcNowProvider: clock.UtcNow);
+
+            runtime.StartAsync().GetAwaiter().GetResult();
+            runtime.NotifyLoginStarted();
+            runtime.NotifyLoginSucceeded();
+            runtime.NotifyHeartbeatSent();
+            clock.Advance(TimeSpan.FromMilliseconds(80));
+            runtime.NotifyHeartbeatReceived(456);
+
+            Assert.That(transport.ApplicationSnapshots, Is.Not.Empty);
+            var latest = transport.ApplicationSnapshots[^1];
+            Assert.That(latest.Scope, Is.EqualTo("shared-runtime"));
+            Assert.That(latest.ConnectionState, Is.EqualTo(ConnectionState.LoggedIn.ToString()));
+            Assert.That(latest.CanSendHeartbeat, Is.True);
+            Assert.That(latest.LastRoundTripTimeMs, Is.EqualTo(80));
+            Assert.That(latest.CurrentServerTick, Is.EqualTo(456));
         }
 
         [Test]
@@ -122,7 +145,44 @@ namespace Tests.EditMode.Network
             Assert.That(host.TryGetSession(peerB, out var sessionB), Is.True);
             Assert.That(sessionA.SessionManager.State, Is.EqualTo(ConnectionState.ReconnectPending));
             Assert.That(sessionB.SessionManager.State, Is.EqualTo(ConnectionState.LoggedIn));
-            Assert.That(sessionB.SessionManager.LastServerTick, Is.EqualTo(99));
+            Assert.That(sessionB.ClockSync.CurrentServerTick, Is.EqualTo(99));
+        }
+
+        [Test]
+        public void ServerNetworkHost_PublishesLifecycleSnapshotsToMetricsSink()
+        {
+            var clock = new MutableClock(new DateTimeOffset(2026, 3, 27, 0, 0, 0, TimeSpan.Zero));
+            var policy = new SessionReconnectPolicy(
+                heartbeatInterval: TimeSpan.FromSeconds(2),
+                heartbeatTimeout: TimeSpan.FromSeconds(5),
+                reconnectDelay: TimeSpan.FromSeconds(3),
+                autoReconnect: true);
+            var transport = new FakeTransport();
+            var host = new ServerNetworkHost(transport, reconnectPolicy: policy, utcNowProvider: clock.UtcNow);
+            var peerA = new IPEndPoint(IPAddress.Parse("127.0.0.1"), 5001);
+            var peerB = new IPEndPoint(IPAddress.Parse("127.0.0.1"), 5002);
+
+            host.StartAsync().GetAwaiter().GetResult();
+            transport.EmitReceive(CreateEnvelope(MessageType.Heartbeat), peerA);
+            transport.EmitReceive(CreateEnvelope(MessageType.Heartbeat), peerB);
+            host.NotifyLoginStarted(peerA);
+            host.NotifyLoginSucceeded(peerA);
+            host.NotifyLoginStarted(peerB);
+            host.NotifyLoginSucceeded(peerB);
+
+            clock.Advance(TimeSpan.FromSeconds(6));
+            host.NotifyHeartbeatReceived(peerB, 999);
+            host.UpdateLifecycle();
+
+            Assert.That(transport.ApplicationSnapshots.Count, Is.GreaterThanOrEqualTo(2));
+            var peerASnapshot = transport.ApplicationSnapshots.FindLast(snapshot => snapshot.RemoteEndPoint == peerA.ToString());
+            var peerBSnapshot = transport.ApplicationSnapshots.FindLast(snapshot => snapshot.RemoteEndPoint == peerB.ToString());
+            Assert.That(peerASnapshot, Is.Not.Null);
+            Assert.That(peerBSnapshot, Is.Not.Null);
+            Assert.That(peerASnapshot.Scope, Is.EqualTo("server-host"));
+            Assert.That(peerASnapshot.ConnectionState, Is.EqualTo(ConnectionState.ReconnectPending.ToString()));
+            Assert.That(peerBSnapshot.ConnectionState, Is.EqualTo(ConnectionState.LoggedIn.ToString()));
+            Assert.That(peerBSnapshot.CurrentServerTick, Is.EqualTo(999));
         }
 
         [Test]
@@ -192,8 +252,10 @@ namespace Tests.EditMode.Network
             }
         }
 
-        private sealed class FakeTransport : ITransport
+        private sealed class FakeTransport : ITransport, ITransportMetricsSink
         {
+            public List<TransportApplicationSessionSnapshot> ApplicationSnapshots { get; } = new();
+
             public event Action<byte[], IPEndPoint> OnReceive;
 
             public Task StartAsync()
@@ -215,6 +277,24 @@ namespace Tests.EditMode.Network
 
             public void SendToAll(byte[] data)
             {
+            }
+
+            public void RecordApplicationSessionSnapshot(TransportApplicationSessionSnapshot snapshot)
+            {
+                ApplicationSnapshots.Add(new TransportApplicationSessionSnapshot
+                {
+                    Scope = snapshot.Scope,
+                    RemoteEndPoint = snapshot.RemoteEndPoint,
+                    ConnectionState = snapshot.ConnectionState,
+                    CanSendHeartbeat = snapshot.CanSendHeartbeat,
+                    LastRoundTripTimeMs = snapshot.LastRoundTripTimeMs,
+                    LastFailureReason = snapshot.LastFailureReason,
+                    LastLivenessUtc = snapshot.LastLivenessUtc,
+                    LastHeartbeatSentUtc = snapshot.LastHeartbeatSentUtc,
+                    NextReconnectAtUtc = snapshot.NextReconnectAtUtc,
+                    CurrentServerTick = snapshot.CurrentServerTick,
+                    ObservedAtUtc = snapshot.ObservedAtUtc
+                });
             }
 
             public void EmitReceive(byte[] data, IPEndPoint sender)

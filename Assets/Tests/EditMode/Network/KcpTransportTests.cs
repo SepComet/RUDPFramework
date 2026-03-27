@@ -194,6 +194,30 @@ namespace Tests.EditMode.Network
 
                 module.BeginRun(new TransportRunDescriptor(nameof(KcpTransport), isServer: false, defaultRemoteEndPoint: remote));
                 module.RecordSessionOpened(remote);
+                module.RecordSessionDiagnostics(remote, new TransportSessionDiagnosticsSnapshot
+                {
+                    LifecycleState = "active",
+                    ObservedAtUtc = DateTimeOffset.UtcNow,
+                    SmoothedRttMs = 18,
+                    RetransmissionTimeoutMs = 45,
+                    WaitSendCount = 3,
+                    SendQueueCount = 2,
+                    SendBufferCount = 1,
+                    ReceiveQueueCount = 0,
+                    ReceiveBufferCount = 0,
+                    RetransmittedSegmentsInFlight = 1,
+                    ObservedRetransmissionSends = 4,
+                    ObservedLossSignals = 4
+                });
+                module.RecordApplicationSessionSnapshot(new TransportApplicationSessionSnapshot
+                {
+                    Scope = "shared-runtime",
+                    ConnectionState = "LoggedIn",
+                    CanSendHeartbeat = true,
+                    LastRoundTripTimeMs = 18,
+                    CurrentServerTick = 321,
+                    ObservedAtUtc = DateTimeOffset.UtcNow
+                });
                 module.RecordPayloadSent(remote, 64);
                 module.RecordDatagramSent(remote, 96);
                 module.RecordError("socket-send", remote, "simulated");
@@ -202,17 +226,47 @@ namespace Tests.EditMode.Network
                 var first = module.CompleteRun();
                 var second = module.CompleteRun();
                 var reportFiles = Directory.GetFiles(reportDirectory, "*.json");
+                var summaryFiles = Directory.GetFiles(reportDirectory, "*.summary.txt");
+                var diagnosisFiles = Directory.GetFiles(reportDirectory, "*.diagnosis.txt");
                 var reportText = File.ReadAllText(reportFiles[0]);
+                var summaryText = File.ReadAllText(summaryFiles[0]);
+                var diagnosisText = File.ReadAllText(diagnosisFiles[0]);
 
                 Assert.That(reportFiles, Has.Length.EqualTo(1));
+                Assert.That(summaryFiles, Has.Length.EqualTo(1));
+                Assert.That(diagnosisFiles, Has.Length.EqualTo(1));
                 Assert.That(first.ReportPath, Is.EqualTo(reportFiles[0]));
+                Assert.That(first.SummaryPath, Is.EqualTo(summaryFiles[0]));
                 Assert.That(second.ReportPath, Is.EqualTo(first.ReportPath));
                 Assert.That(first.SessionsCreated, Is.EqualTo(1));
                 Assert.That(first.SessionsClosed, Is.EqualTo(1));
+                Assert.That(first.SessionsWithDiagnostics, Is.EqualTo(1));
+                Assert.That(first.AverageSmoothedRttMs, Is.EqualTo(18).Within(0.01));
+                Assert.That(first.TotalObservedRetransmissionSends, Is.EqualTo(4));
+                Assert.That(first.TotalObservedLossSignals, Is.EqualTo(4));
+                Assert.That(first.SessionStateCounts["closed"], Is.EqualTo(1));
+                Assert.That(first.ApplicationSessionsTracked, Is.EqualTo(1));
+                Assert.That(first.ApplicationSessionStateCounts["LoggedIn"], Is.EqualTo(1));
                 Assert.That(first.ErrorCountsByStage["socket-send"], Is.EqualTo(1));
+                Assert.That(first.ReadableSummary.Headline, Does.Contain("finished"));
+                Assert.That(first.ReadableSummary.LifecycleSummary, Does.Contain("states=LoggedIn=1"));
+                Assert.That(first.ReadableSummary.HealthSummary, Does.Contain("avgRtt=18.0 ms"));
+                Assert.That(first.ReadableSummary.HealthSummary, Does.Contain("observedRetransmissions=4"));
                 Assert.That(reportText, Does.Contain(Environment.NewLine));
                 Assert.That(reportText, Does.Contain("  \"RunId\""));
-                Assert.That(consoleWriter.ToString(), Does.Contain("[TransportMetrics] KcpTransport"));
+                Assert.That(reportText, Does.Contain("  \"ReadableSummary\""));
+                Assert.That(summaryText, Does.Contain("Transport Metrics Summary"));
+                Assert.That(summaryText, Does.Contain("English Summary"));
+                Assert.That(summaryText, Does.Contain("Chinese Summary"));
+                Assert.That(summaryText, Does.Contain("Top Peers:"));
+                Assert.That(summaryText, Does.Contain("states=LoggedIn=1"));
+                Assert.That(summaryText, Does.Contain("avgRtt=18.0 ms"));
+                Assert.That(diagnosisText, Does.Contain("传输诊断结论"));
+                Assert.That(diagnosisText, Does.Contain("网络质量存在明显风险"));
+                Assert.That(diagnosisText, Does.Contain("共享会话已跟踪 1 个"));
+                Assert.That(summaryText, Does.Contain("重点对端:"));
+                Assert.That(consoleWriter.ToString(), Does.Contain("[TransportMetrics] English Summary"));
+                Assert.That(consoleWriter.ToString(), Does.Contain("[TransportMetrics] Chinese Summary"));
             }
             finally
             {
@@ -268,6 +322,11 @@ namespace Tests.EditMode.Network
                 Assert.That(liveSnapshot.PeerSummaries, Has.Count.EqualTo(2));
                 Assert.That(liveSnapshot.PeerSummaries.Sum(peer => peer.PayloadMessagesReceived), Is.EqualTo(2));
                 Assert.That(liveSnapshot.PeerSummaries.Select(peer => peer.RemoteEndPoint).Distinct().Count(), Is.EqualTo(2));
+                Assert.That(liveSnapshot.SessionsWithDiagnostics, Is.EqualTo(2));
+                Assert.That(liveSnapshot.PeerSummaries.All(peer => peer.SessionDiagnostics.ObservedAtUtc.HasValue), Is.True);
+                Assert.That(liveSnapshot.PeerSummaries.All(peer => peer.SessionLifecycleState == "active"), Is.True);
+                Assert.That(liveSnapshot.TotalSendQueueCount, Is.GreaterThanOrEqualTo(0));
+                Assert.That(liveSnapshot.TotalObservedRetransmissionSends, Is.GreaterThanOrEqualTo(0));
 
                 server.Stop();
                 clientA.Stop();
@@ -275,9 +334,14 @@ namespace Tests.EditMode.Network
 
                 var completedSnapshot = server.GetMetricsSnapshot();
                 Assert.That(completedSnapshot.ReportPath, Is.Not.Null.And.Not.Empty);
+                Assert.That(completedSnapshot.SummaryPath, Is.Not.Null.And.Not.Empty);
                 Assert.That(Directory.GetFiles(serverReportDirectory, "*.json"), Has.Length.EqualTo(1));
+                Assert.That(Directory.GetFiles(serverReportDirectory, "*.summary.txt"), Has.Length.EqualTo(1));
+                Assert.That(Directory.GetFiles(serverReportDirectory, "*.diagnosis.txt"), Has.Length.EqualTo(1));
                 Assert.That(completedSnapshot.ActiveSessions, Is.EqualTo(0));
                 Assert.That(completedSnapshot.SessionsClosed, Is.EqualTo(2));
+                Assert.That(completedSnapshot.SessionStateCounts["closed"], Is.EqualTo(2));
+                Assert.That(completedSnapshot.ReadableSummary.HealthSummary, Does.Contain("states=closed=2"));
             }
             finally
             {
@@ -287,6 +351,136 @@ namespace Tests.EditMode.Network
                 DeleteDirectory(serverReportDirectory);
                 DeleteDirectory(clientAReportDirectory);
                 DeleteDirectory(clientBReportDirectory);
+            }
+        }
+
+        [Test]
+        public void DefaultTransportMetricsModule_DisabledReports_SkipsFilesAndConsole()
+        {
+            var reportDirectory = CreateReportDirectory();
+            var consoleWriter = new StringWriter();
+            var options = new TransportMetricsOptions
+            {
+                ReportDirectory = reportDirectory,
+                ConsoleWriter = consoleWriter,
+                WriteJsonReport = false,
+                WriteTextSummaryReport = false,
+                WriteDiagnosisReport = false,
+                EmitConsoleSummary = false
+            };
+
+            try
+            {
+                var module = new DefaultTransportMetricsModule(options);
+                var remote = new IPEndPoint(IPAddress.Loopback, 5001);
+
+                module.BeginRun(new TransportRunDescriptor(nameof(KcpTransport), isServer: true, defaultRemoteEndPoint: remote));
+                module.RecordPayloadReceived(remote, 32);
+                var snapshot = module.CompleteRun();
+
+                Assert.That(snapshot.ReportPath, Is.Null);
+                Assert.That(snapshot.SummaryPath, Is.Null);
+                Assert.That(Directory.Exists(reportDirectory), Is.False);
+                Assert.That(consoleWriter.ToString(), Is.Empty);
+            }
+            finally
+            {
+                DeleteDirectory(reportDirectory);
+            }
+        }
+
+        [Test]
+        public void TransportMetricsDiagnosisFormatter_HighlightsReconnectAndBacklogRisks()
+        {
+            var snapshot = new TransportMetricsSnapshot
+            {
+                TransportName = nameof(KcpTransport),
+                Mode = "server",
+                DurationMs = 2400,
+                AverageSmoothedRttMs = 188.5,
+                PeakSmoothedRttMs = 320,
+                TotalWaitSendCount = 9,
+                TotalSendQueueCount = 4,
+                TotalSendBufferCount = 2,
+                TotalRetransmittedSegmentsInFlight = 3,
+                TotalObservedRetransmissionSends = 7,
+                SendErrors = 1,
+                ErrorCountsByStage = new Dictionary<string, long>(StringComparer.Ordinal)
+                {
+                    ["socket-send"] = 1
+                },
+                ApplicationSessionsTracked = 2,
+                ApplicationSessionStateCounts = new Dictionary<string, long>(StringComparer.Ordinal)
+                {
+                    ["LoggedIn"] = 1,
+                    ["ReconnectPending"] = 1
+                },
+                ApplicationSessionSummaries = new List<TransportApplicationSessionSnapshot>
+                {
+                    new()
+                    {
+                        Scope = "server-host",
+                        RemoteEndPoint = "127.0.0.1:5001",
+                        ConnectionState = "ReconnectPending",
+                        NextReconnectAtUtc = DateTimeOffset.UtcNow.AddSeconds(2)
+                    },
+                    new()
+                    {
+                        Scope = "server-host",
+                        RemoteEndPoint = "127.0.0.1:5002",
+                        ConnectionState = "LoggedIn",
+                        CanSendHeartbeat = true,
+                        LastRoundTripTimeMs = 188
+                    }
+                },
+                SessionsWithDiagnostics = 2,
+                PeerSummaries = new List<TransportPeerMetricsSnapshot>
+                {
+                    new()
+                    {
+                        RemoteEndPoint = "127.0.0.1:5001",
+                        SessionLifecycleState = "active",
+                        ObservedRetransmissionSends = 7,
+                        SessionDiagnostics = new TransportSessionDiagnosticsSnapshot
+                        {
+                            WaitSendCount = 9
+                        }
+                    }
+                }
+            };
+
+            var diagnosis = TransportMetricsDiagnosisFormatter.BuildChineseDiagnosis(snapshot);
+
+            Assert.That(diagnosis, Does.Contain("已出现会话不稳定迹象"));
+            Assert.That(diagnosis, Does.Contain("存在发送侧堆积迹象"));
+            Assert.That(diagnosis, Does.Contain("存在重传迹象"));
+            Assert.That(diagnosis, Does.Contain("ReconnectPending=1"));
+        }
+
+        [Test]
+        public void TransportMetricsReportLocator_ReturnsMostRecentDiagnosisFile()
+        {
+            var reportDirectory = CreateReportDirectory();
+
+            try
+            {
+                Directory.CreateDirectory(reportDirectory);
+                var olderPath = Path.Combine(reportDirectory, "older.diagnosis.txt");
+                var newerPath = Path.Combine(reportDirectory, "newer.diagnosis.txt");
+                File.WriteAllText(olderPath, "older");
+                File.WriteAllText(newerPath, "newer");
+                File.SetLastWriteTimeUtc(olderPath, new DateTime(2026, 3, 27, 0, 0, 0, DateTimeKind.Utc));
+                File.SetLastWriteTimeUtc(newerPath, new DateTime(2026, 3, 27, 0, 0, 5, DateTimeKind.Utc));
+
+                var latestPath = TransportMetricsReportLocator.TryGetLatestDiagnosisPath(reportDirectory);
+                var latestText = TransportMetricsReportLocator.ReadLatestDiagnosisText(reportDirectory);
+
+                Assert.That(latestPath, Is.EqualTo(newerPath));
+                Assert.That(latestText, Is.EqualTo("newer"));
+            }
+            finally
+            {
+                DeleteDirectory(reportDirectory);
             }
         }
         private static async Task<T> WaitFor<T>(Task<T> task, string failureMessage)

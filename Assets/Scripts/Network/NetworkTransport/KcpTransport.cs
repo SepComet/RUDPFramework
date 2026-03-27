@@ -10,7 +10,7 @@ using kcp;
 
 namespace Network.NetworkTransport
 {
-    public partial class KcpTransport : ITransport
+    public partial class KcpTransport : ITransport, ITransportMetricsSink
     {
         private const uint DefaultConv = 1;
         private const int DefaultNoDelay = 1;
@@ -67,6 +67,11 @@ namespace Network.NetworkTransport
         public TransportMetricsSnapshot GetMetricsSnapshot()
         {
             return _metricsModule.GetCurrentSnapshot();
+        }
+
+        public void RecordApplicationSessionSnapshot(TransportApplicationSessionSnapshot snapshot)
+        {
+            _metricsModule.RecordApplicationSessionSnapshot(snapshot);
         }
 
         public Task StartAsync()
@@ -318,6 +323,7 @@ namespace Network.NetworkTransport
 
             foreach (var session in sessions)
             {
+                _metricsModule.RecordSessionDiagnostics(session.RemoteEndPoint, session.CaptureDiagnostics("closed"));
                 session.Dispose();
                 _metricsModule.RecordSessionClosed(session.RemoteEndPoint);
             }
@@ -357,6 +363,16 @@ namespace Network.NetworkTransport
         private void RecordTransportError(string stage, IPEndPoint remoteEndPoint, string detail)
         {
             _metricsModule.RecordError(stage, remoteEndPoint, detail);
+        }
+
+        private void RecordSessionDiagnostics(KcpSession session, string lifecycleState)
+        {
+            if (session == null)
+            {
+                return;
+            }
+
+            _metricsModule.RecordSessionDiagnostics(session.RemoteEndPoint, session.CaptureDiagnostics(lifecycleState));
         }
     }
 }

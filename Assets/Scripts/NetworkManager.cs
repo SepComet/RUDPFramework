@@ -17,10 +17,12 @@ public class NetworkManager : MonoBehaviour
     private uint _sequence = 0;
     private Task _networkDrainTask = Task.CompletedTask;
     [SerializeField] private GameObject _wrongWindow;
+    [SerializeField] private bool _enableNetworkDiagnosticsOverlay = true;
 
     private void Awake()
     {
         Instance = this;
+        EnsureDiagnosticsOverlay();
         StartCoroutine(InitNetwork());
     }
 
@@ -80,6 +82,19 @@ public class NetworkManager : MonoBehaviour
         }
     }
 
+    private void EnsureDiagnosticsOverlay()
+    {
+        if (!_enableNetworkDiagnosticsOverlay)
+        {
+            return;
+        }
+
+        if (GetComponent<NetworkDiagnosticsOverlay>() == null)
+        {
+            gameObject.AddComponent<NetworkDiagnosticsOverlay>();
+        }
+    }
+
     private IEnumerator Heartbeat()
     {
         while (true)
@@ -110,6 +125,7 @@ public class NetworkManager : MonoBehaviour
     {
         var response = LoginResponse.Parser.ParseFrom(data);
         _networkRuntime.NotifyInboundActivity();
+        _networkRuntime.ClockSync.ObserveSample(response.ServerTick);
         _serverPoint = sender;
         if (response.Result)
         {
@@ -128,7 +144,15 @@ public class NetworkManager : MonoBehaviour
     {
         _networkRuntime.NotifyInboundActivity();
         var message = PlayerState.Parser.ParseFrom(data);
+        _networkRuntime.ObserveAuthoritativeState(message.Tick);
         MasterManager.Instance.MovePlayer(message.PlayerId, message);
+        var player = MasterManager.Instance.GetCurrentPlayer();
+        var currentServerTick = _networkRuntime.ClockSync.CurrentServerTick;
+        if (player != null && currentServerTick.HasValue)
+        {
+            player.SyncTick(currentServerTick.Value);
+        }
+
         Debug.Log($"收到PlayerState::PlayerID={message.PlayerId},Position=" + message.Position.ToVector3().ToString());
     }
 
@@ -137,9 +161,10 @@ public class NetworkManager : MonoBehaviour
         var response = HeartbeatResponse.Parser.ParseFrom(data);
         _networkRuntime.NotifyHeartbeatReceived(response.ServerTick);
         var player = MasterManager.Instance.GetCurrentPlayer();
-        if (player != null)
+        var currentServerTick = _networkRuntime.ClockSync.CurrentServerTick;
+        if (player != null && currentServerTick.HasValue)
         {
-            player.SyncTick(response.ServerTick);
+            player.SyncTick(currentServerTick.Value);
         }
     }
 

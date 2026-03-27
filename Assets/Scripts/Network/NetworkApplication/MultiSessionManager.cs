@@ -119,12 +119,19 @@ namespace Network.NetworkApplication
 
         public void NotifyHeartbeatReceived(IPEndPoint remoteEndPoint, long? serverTick = null)
         {
-            GetOrCreateSession(remoteEndPoint).SessionManager.NotifyHeartbeatReceived(serverTick);
+            var session = GetOrCreateSession(remoteEndPoint);
+            session.SessionManager.NotifyHeartbeatReceived();
+            session.ClockSync.ObserveSample(serverTick);
         }
 
         public void NotifyInboundActivity(IPEndPoint remoteEndPoint)
         {
             GetOrCreateSession(remoteEndPoint).SessionManager.NotifyInboundActivity();
+        }
+
+        public void ObserveAuthoritativeState(IPEndPoint remoteEndPoint, long? serverTick)
+        {
+            GetOrCreateSession(remoteEndPoint).ClockSync.ObserveSample(serverTick);
         }
 
         public bool RemoveSession(IPEndPoint remoteEndPoint, string reason = null)
@@ -194,7 +201,8 @@ namespace Network.NetworkApplication
                 }
 
                 var sessionManager = new SessionManager(reconnectPolicy, utcNowProvider);
-                var session = new ManagedNetworkSession(normalizedEndPoint, sessionManager);
+                var clockSync = new ClockSyncState(utcNowProvider);
+                var session = new ManagedNetworkSession(normalizedEndPoint, sessionManager, clockSync);
                 Action<SessionLifecycleEvent> handler = lifecycleEvent =>
                     LifecycleChanged?.Invoke(new MultiSessionLifecycleEvent(session.RemoteEndPoint, session.SessionManager, lifecycleEvent));
 
@@ -235,4 +243,3 @@ namespace Network.NetworkApplication
         }
     }
 }
-

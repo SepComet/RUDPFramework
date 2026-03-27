@@ -1,4 +1,4 @@
-﻿# network-session-lifecycle Specification
+# network-session-lifecycle Specification
 
 ## Purpose
 Define the shared session lifecycle model that separates transport connectivity, login state, heartbeat liveness, timeout detection, and reconnect scheduling for client and server hosts.
@@ -18,12 +18,12 @@ The shared networking core SHALL expose an explicit session lifecycle model that
 - **THEN** hosts can react to that state change without conflating it with transport establishment
 
 ### Requirement: Heartbeat is limited to liveness, RTT, and time sync
-The shared session lifecycle SHALL treat heartbeat traffic as infrastructure input for liveness detection, round-trip-time measurement, and clock synchronization only. Heartbeat processing MUST NOT itself own login success, login failure, or reconnect policy decisions.
+The shared session lifecycle SHALL treat heartbeat traffic as infrastructure input for liveness detection and round-trip-time measurement only. Clock-synchronization samples MUST be forwarded to a separate sync-strategy component rather than being owned by `SessionManager`, and heartbeat processing MUST NOT itself own login success, login failure, or reconnect policy decisions.
 
-#### Scenario: Heartbeat updates liveness and RTT only
+#### Scenario: Heartbeat updates liveness and RTT while forwarding clock samples
 - **WHEN** a heartbeat response is received for an active session
-- **THEN** the session manager updates last-seen or timeout bookkeeping and RTT or clock-sync data
-- **THEN** it does not mark the session logged in solely because the heartbeat succeeded
+- **THEN** the session manager updates last-seen or timeout bookkeeping and RTT data
+- **THEN** any server-tick sample is forwarded to the clock-sync strategy without making heartbeat the owner of login state
 
 #### Scenario: Missing heartbeat triggers timeout state
 - **WHEN** the configured heartbeat timeout elapses without a required heartbeat or other liveness signal
