@@ -87,3 +87,6 @@ crashlytics-build.properties
 ~$*.xlsx
 Assets/GameMain/Configs/ResourceBuilder.xml
 /.dotnet
+
+/.dotnet-home
+

@@ -1,5 +1,6 @@
-using System.Collections;
+﻿using System.Collections;
 using System.Net;
+using System.Threading.Tasks;
 using Network.Defines;
 using Network.NetworkApplication;
 using Network.NetworkTransport;
@@ -8,11 +9,13 @@ using Vector3 = UnityEngine.Vector3;
 
 public class NetworkManager : MonoBehaviour
 {
+    private const int MaxNetworkMessagesPerFrame = 32;
+
     public static NetworkManager Instance;
-    private ITransport _transport;
-    private MessageManager _messageManager;
+    private SharedNetworkRuntime _networkRuntime;
     private IPEndPoint _serverPoint;
     private uint _sequence = 0;
+    private Task _networkDrainTask = Task.CompletedTask;
     [SerializeField] private GameObject _wrongWindow;
 
     private void Awake()
@@ -23,9 +26,11 @@ public class NetworkManager : MonoBehaviour
 
     private IEnumerator InitNetwork()
     {
-        _transport = new KcpTransport("127.0.0.1", 8080);
+        var transport = new KcpTransport("127.0.0.1", 8080);
+        var dispatcher = new MainThreadNetworkDispatcher();
+        _networkRuntime = new SharedNetworkRuntime(transport, dispatcher);
 
-        var startTask = _transport.StartAsync();
+        var startTask = _networkRuntime.StartAsync();
         yield return new WaitUntil(() => startTask.IsCompleted);
 
         if (startTask.IsFaulted)
@@ -34,14 +39,33 @@ public class NetworkManager : MonoBehaviour
             yield break;
         }
 
-        _messageManager = new MessageManager(_transport);
         RegisterHandler();
         StartCoroutine(Heartbeat());
     }
 
+    private void Update()
+    {
+        if (_networkRuntime == null)
+        {
+            return;
+        }
+
+        if (!_networkDrainTask.IsCompleted)
+        {
+            return;
+        }
+
+        if (_networkDrainTask.IsFaulted)
+        {
+            Debug.LogException(_networkDrainTask.Exception);
+        }
+
+        _networkDrainTask = _networkRuntime.DrainPendingMessagesAsync(MaxNetworkMessagesPerFrame);
+    }
+
     private void OnDestroy()
     {
-        _transport?.Stop();
+        _networkRuntime?.Stop();
         if (Instance == this)
         {
             Instance = null;
@@ -55,7 +79,7 @@ public class NetworkManager : MonoBehaviour
             if (_serverPoint != null)
             {
                 var heartbeat = new Heartbeat();
-                _messageManager.SendMessage(heartbeat, MessageType.Heartbeat, _serverPoint);
+                _networkRuntime.MessageManager.SendMessage(heartbeat, MessageType.Heartbeat, _serverPoint);
             }
 
             yield return new WaitForSeconds(2.0f);
@@ -64,11 +88,11 @@ public class NetworkManager : MonoBehaviour
 
     private void RegisterHandler()
     {
-        _messageManager.RegisterHandler(MessageType.LoginResponse, HandleLoginResponse);
-        _messageManager.RegisterHandler(MessageType.PlayerState, HandlePlayerState);
-        _messageManager.RegisterHandler(MessageType.HeartbeatResponse, HandleHeartbeatResponse);
-        _messageManager.RegisterHandler(MessageType.LogoutRequest, HandleLogoutRequest);
-        _messageManager.RegisterHandler(MessageType.PlayerJoin, HandlePlayerJoin);
+        _networkRuntime.MessageManager.RegisterHandler(MessageType.LoginResponse, HandleLoginResponse);
+        _networkRuntime.MessageManager.RegisterHandler(MessageType.PlayerState, HandlePlayerState);
+        _networkRuntime.MessageManager.RegisterHandler(MessageType.HeartbeatResponse, HandleHeartbeatResponse);
+        _networkRuntime.MessageManager.RegisterHandler(MessageType.LogoutRequest, HandleLogoutRequest);
+        _networkRuntime.MessageManager.RegisterHandler(MessageType.PlayerJoin, HandlePlayerJoin);
     }
 
     private void HandleLoginResponse(byte[] data, IPEndPoint sender)
@@ -123,13 +147,13 @@ public class NetworkManager : MonoBehaviour
             PlayerId = playerId,
             Input = ProtoExtensions.ToProtoVector3(input)
         };
-        _messageManager.SendMessage(message, MessageType.PlayerInput);
+        _networkRuntime.MessageManager.SendMessage(message, MessageType.PlayerInput);
         Debug.Log($"PlayerMoveSeq: {_sequence++}");
     }
 
     public void SendPlayerInput(PlayerInput message)
     {
-        _messageManager.SendMessage(message, MessageType.PlayerInput);
+        _networkRuntime.MessageManager.SendMessage(message, MessageType.PlayerInput);
         Debug.Log($"PlayerMoveSeq: {_sequence++}");
     }
 
@@ -140,7 +164,7 @@ public class NetworkManager : MonoBehaviour
             PlayerId = playerId,
             Speed = speed
         };
-        _messageManager.SendMessage(request, MessageType.LoginRequest);
+        _networkRuntime.MessageManager.SendMessage(request, MessageType.LoginRequest);
         Debug.Log($"Sent login request to player {playerId}");
     }
 
@@ -150,7 +174,7 @@ public class NetworkManager : MonoBehaviour
         {
             PlayerId = playerId
         };
-        _messageManager.SendMessage(request, MessageType.LogoutRequest);
+        _networkRuntime.MessageManager.SendMessage(request, MessageType.LogoutRequest);
         Debug.Log($"Sent logout request to player {playerId}");
     }
 }

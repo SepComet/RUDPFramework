@@ -1,4 +1,5 @@
-using System;
+﻿using System;
+using System.Collections.Generic;
 using System.Net;
 using System.Threading.Tasks;
 using Google.Protobuf;
@@ -17,7 +18,7 @@ namespace Tests.EditMode.Network
         public void SendMessage_WithoutTarget_UsesDefaultSend()
         {
             var transport = new FakeTransport();
-            var manager = new MessageManager(transport);
+            var manager = new MessageManager(transport, new MainThreadNetworkDispatcher());
             var message = new Heartbeat();
 
             manager.SendMessage(message, MessageType.Heartbeat);
@@ -35,7 +36,7 @@ namespace Tests.EditMode.Network
         public void SendMessage_WithTarget_UsesExplicitSend()
         {
             var transport = new FakeTransport();
-            var manager = new MessageManager(transport);
+            var manager = new MessageManager(transport, new MainThreadNetworkDispatcher());
             var message = new LoginRequest
             {
                 PlayerId = "player-1",
@@ -57,7 +58,7 @@ namespace Tests.EditMode.Network
         public void BroadcastMessage_UsesBroadcastSend()
         {
             var transport = new FakeTransport();
-            var manager = new MessageManager(transport);
+            var manager = new MessageManager(transport, new MainThreadNetworkDispatcher());
             var message = new Heartbeat();
 
             manager.BroadcastMessage(message, MessageType.Heartbeat);
@@ -71,10 +72,10 @@ namespace Tests.EditMode.Network
         }
 
         [Test]
-        public void Receive_ValidEnvelope_DispatchesRegisteredHandler()
+        public void Receive_ValidEnvelope_IsDeferredUntilDrain()
         {
             var transport = new FakeTransport();
-            var manager = new MessageManager(transport);
+            var manager = new MessageManager(transport, new MainThreadNetworkDispatcher());
             var handled = false;
             IPEndPoint receivedSender = null;
             byte[] receivedPayload = null;
@@ -89,26 +90,33 @@ namespace Tests.EditMode.Network
 
             transport.EmitReceive(BuildEnvelope(MessageType.Heartbeat, message), Sender);
 
+            Assert.That(handled, Is.False);
+            Assert.That(manager.PendingMessageCount, Is.EqualTo(1));
+
+            manager.DrainPendingMessagesAsync().GetAwaiter().GetResult();
+
             Assert.That(handled, Is.True);
             Assert.That(receivedSender, Is.EqualTo(Sender));
             Assert.That(receivedPayload, Is.EqualTo(message.ToByteArray()));
+            Assert.That(manager.PendingMessageCount, Is.EqualTo(0));
         }
 
         [Test]
         public void Receive_UnregisteredMessage_DoesNotThrow()
         {
             var transport = new FakeTransport();
-            var manager = new MessageManager(transport);
+            var manager = new MessageManager(transport, new MainThreadNetworkDispatcher());
 
             Assert.DoesNotThrow(() =>
                 transport.EmitReceive(BuildEnvelope(MessageType.Heartbeat, new Heartbeat()), Sender));
+            Assert.That(manager.PendingMessageCount, Is.EqualTo(0));
         }
 
         [Test]
         public void Receive_InvalidBytes_DoesNotBreakFollowingDispatch()
         {
             var transport = new FakeTransport();
-            var manager = new MessageManager(transport);
+            var manager = new MessageManager(transport, new MainThreadNetworkDispatcher());
             var handledCount = 0;
 
             manager.RegisterHandler(MessageType.Heartbeat, (payload, sender) =>
@@ -119,7 +127,35 @@ namespace Tests.EditMode.Network
             Assert.DoesNotThrow(() => transport.EmitReceive(new byte[] { 0x01, 0x02, 0x03 }, Sender));
             transport.EmitReceive(BuildEnvelope(MessageType.Heartbeat, new Heartbeat()), Sender);
 
+            Assert.That(handledCount, Is.EqualTo(0));
+            Assert.That(manager.PendingMessageCount, Is.EqualTo(1));
+
+            manager.DrainPendingMessagesAsync().GetAwaiter().GetResult();
+
             Assert.That(handledCount, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void Receive_MultipleMessages_PreserveEnqueueOrder()
+        {
+            var transport = new FakeTransport();
+            var manager = new MessageManager(transport, new MainThreadNetworkDispatcher());
+            var handledSpeeds = new List<int>();
+
+            manager.RegisterHandler(MessageType.LoginRequest, (payload, sender) =>
+            {
+                handledSpeeds.Add(LoginRequest.Parser.ParseFrom(payload).Speed);
+            });
+
+            transport.EmitReceive(BuildEnvelope(MessageType.LoginRequest, new LoginRequest { PlayerId = "a", Speed = 1 }), Sender);
+            transport.EmitReceive(BuildEnvelope(MessageType.LoginRequest, new LoginRequest { PlayerId = "b", Speed = 2 }), Sender);
+
+            Assert.That(handledSpeeds, Is.Empty);
+            Assert.That(manager.PendingMessageCount, Is.EqualTo(2));
+
+            manager.DrainPendingMessagesAsync().GetAwaiter().GetResult();
+
+            Assert.That(handledSpeeds, Is.EqualTo(new[] { 1, 2 }));
         }
 
         private static byte[] BuildEnvelope(MessageType type, IMessage payload)

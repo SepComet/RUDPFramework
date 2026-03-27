@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Net;
 using System.Threading.Tasks;
@@ -11,15 +11,21 @@ namespace Network.NetworkApplication
     public class MessageManager
     {
         private readonly ITransport transport;
+        private readonly INetworkMessageDispatcher dispatcher;
 
         private readonly Dictionary<MessageType, Func<byte[], IPEndPoint, Task>> handlers =
             new();
 
-        public MessageManager(ITransport transport)
+        public MessageManager(ITransport transport, INetworkMessageDispatcher dispatcher)
         {
             this.transport = transport ?? throw new ArgumentNullException(nameof(transport));
-            this.transport.OnReceive += OnTransportReceiveAsync;
+            this.dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
+            this.transport.OnReceive += OnTransportReceive;
         }
+
+        public INetworkMessageDispatcher Dispatcher => dispatcher;
+
+        public int PendingMessageCount => dispatcher.PendingCount;
 
         public void RegisterHandler(MessageType type, IMessageHandler handler)
         {
@@ -94,7 +100,12 @@ namespace Network.NetworkApplication
             transport.SendToAll(envelope.ToByteArray());
         }
 
-        private async void OnTransportReceiveAsync(byte[] data, IPEndPoint sender)
+        public Task<int> DrainPendingMessagesAsync(int maxMessages = int.MaxValue)
+        {
+            return dispatcher.DrainAsync(maxMessages);
+        }
+
+        private void OnTransportReceive(byte[] data, IPEndPoint sender)
         {
             try
             {
@@ -104,7 +115,8 @@ namespace Network.NetworkApplication
 
                 if (handlers.TryGetValue(type, out var handler))
                 {
-                    await handler(envelope.Payload.ToByteArray(), sender);
+                    var payload = envelope.Payload.ToByteArray();
+                    dispatcher.Enqueue(() => DispatchAsync(handler, payload, sender, type));
                 }
                 else
                 {
@@ -114,6 +126,22 @@ namespace Network.NetworkApplication
             catch (Exception ex)
             {
                 Console.WriteLine($"[MessageManager] 消息处理错误：{ex.Message}");
+            }
+        }
+
+        private static async Task DispatchAsync(
+            Func<byte[], IPEndPoint, Task> handler,
+            byte[] payload,
+            IPEndPoint sender,
+            MessageType type)
+        {
+            try
+            {
+                await handler(payload, sender);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[MessageManager] Handler 执行错误：{type} -> {ex.Message}");
             }
         }
     }
