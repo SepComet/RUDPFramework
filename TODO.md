@@ -53,46 +53,46 @@ Acceptance:
 
 ### 2. Align Client Input Flow With MVP
 
-- [ ] Update [`Assets/Scripts/MovementComponent.cs`](D:/Learn/GameLearn/UnityProjects/NetworkFW/Assets/Scripts/MovementComponent.cs) so movement intent can send an explicit zero-vector stop message when the player releases input
-- [ ] Keep local prediction immediate for the controlled player
-- [ ] Add a client shooting input capture path
-- [ ] Add `NetworkManager.SendShootInput(...)`
-- [ ] Ensure the client sends only `MoveInput` and `ShootInput` for gameplay actions
-- [ ] Keep local shooting presentation optional and purely cosmetic
+- [x] Update [`Assets/Scripts/MovementComponent.cs`](D:/Learn/GameLearn/UnityProjects/NetworkFW/Assets/Scripts/MovementComponent.cs) so movement intent can send an explicit zero-vector stop message when the player releases input
+- [x] Keep local prediction immediate for the controlled player
+- [x] Add a client shooting input capture path
+- [x] Add `NetworkManager.SendShootInput(...)`
+- [x] Ensure the client sends only `MoveInput` and `ShootInput` for gameplay actions
+- [x] Keep local shooting presentation optional and purely cosmetic
 
 Acceptance:
 
-- [ ] Releasing movement input produces a final `MoveInput` that stops authoritative movement
-- [ ] Firing produces a `ShootInput` sent on the reliable lane
-- [ ] No MVP gameplay action depends on legacy broad messages such as `PlayerAction`
+- [x] Releasing movement input produces a final `MoveInput` that stops authoritative movement
+- [x] Firing produces a `ShootInput` sent on the reliable lane
+- [x] No MVP gameplay action depends on legacy broad messages such as `PlayerAction`
 
 ### 3. Apply Full Authoritative `PlayerState` On The Client
 
-- [ ] Extend the player-side presentation model to consume authoritative `position`, `rotation`, `hp`, and optional `velocity`
-- [ ] Keep local-player reconciliation driven by authoritative `PlayerState.Tick`
-- [ ] Use authoritative HP instead of any local guesswork
-- [ ] Decide where authoritative player state lives on the client side and keep that ownership explicit
-- [ ] Update UI or diagnostics so authoritative HP/state changes are observable during development
+- [x] Extend the player-side presentation model to consume authoritative `position`, `rotation`, `hp`, and optional `velocity`
+- [x] Keep local-player reconciliation driven by authoritative `PlayerState.Tick`
+- [x] Use authoritative HP instead of any local guesswork
+- [x] Decide where authoritative player state lives on the client side and keep that ownership explicit
+- [x] Update UI or diagnostics so authoritative HP/state changes are observable during development
 
 Acceptance:
 
-- [ ] Local player corrects to server truth for position and rotation
-- [ ] Local and remote players expose authoritative HP from `PlayerState`
-- [ ] The client does not finalize gameplay truth outside authoritative messages
+- [x] Local player corrects to server truth for position and rotation
+- [x] Local and remote players expose authoritative HP from `PlayerState`
+- [x] The client does not finalize gameplay truth outside authoritative messages
 
 ### 4. Replace Ad-Hoc Remote Movement Smoothing With Snapshot Interpolation
 
-- [ ] Add a small `PlayerState` snapshot buffer for remote players
-- [ ] Interpolate between buffered snapshots instead of lerping directly to the latest state
-- [ ] Discard stale snapshots by tick
-- [ ] Keep remote players non-predicted
-- [ ] Document the interpolation delay / sample strategy in code comments or docs if it is non-obvious
+- [x] Add a small `PlayerState` snapshot buffer for remote players
+- [x] Interpolate between buffered snapshots instead of lerping directly to the latest state
+- [x] Discard stale snapshots by tick
+- [x] Keep remote players non-predicted
+- [x] Document the interpolation delay / sample strategy in code comments or docs if it is non-obvious
 
 Acceptance:
 
-- [ ] Remote movement is based on buffered authoritative snapshots
-- [ ] Out-of-order remote `PlayerState` packets do not corrupt presentation
-- [ ] Remote players are smoothed without becoming locally authoritative
+- [x] Remote movement is based on buffered authoritative snapshots
+- [x] Out-of-order remote `PlayerState` packets do not corrupt presentation
+- [x] Remote players are smoothed without becoming locally authoritative
 
 ### 5. Add Client-Side `CombatEvent` Handling
 

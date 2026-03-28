@@ -5,12 +5,14 @@ public class Player : MonoBehaviour
 {
     //[SerializeField] private float _moveSpeed = 10f;
     public string PlayerId { get; private set; } = "1001";
+    public ClientAuthoritativePlayerStateSnapshot AuthoritativeState => _authoritativeState.Current;
     [SerializeField] private MeshRenderer _meshRenderer;
     [SerializeField] private Material[] _materials;
     [SerializeField] private Camera _camera;
     [SerializeField] private MovementComponent _movement;
     [SerializeField] private PlayerUI _playerUI;
     [SerializeField] private bool _isControlled;
+    private readonly ClientAuthoritativePlayerState _authoritativeState = new();
 
     public void LocalInit(string playerId, int speed, long serverTick)
     {
@@ -49,8 +51,13 @@ public class Player : MonoBehaviour
 
     public void SyncPosition(PlayerState movement)
     {
-        if (this._movement == null) return;
-        _movement.OnServerState(movement);
+        if (!_authoritativeState.TryAccept(movement, out var snapshot))
+        {
+            return;
+        }
+
+        _playerUI?.SyncAuthoritativeState(snapshot);
+        _movement?.OnAuthoritativeState(snapshot);
     }
 
     public void SyncTick(long serverTick)

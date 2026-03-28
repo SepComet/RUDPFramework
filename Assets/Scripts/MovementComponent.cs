@@ -63,16 +63,14 @@ public class MovementComponent : MonoBehaviour
 
     private Vector3 _serverPosition;
     private bool _hasServerState = false;
-    private PlayerState _lastServerState;
+    private ClientAuthoritativePlayerStateSnapshot _lastAuthoritativeState;
 
     public long Tick { get; private set; } = 0;
     private long _startTickOffset = 0;
     private long _currentTickOffset = 0;
     private readonly ClientPredictionBuffer _predictionBuffer = new ClientPredictionBuffer();
 
-    private Vector3 _serverPos;
-    private Vector3 _currentPos;
-    private float _lerpTime;
+    private readonly RemotePlayerSnapshotInterpolator _remoteSnapshotInterpolator = new();
     [SerializeField] private float _lerpRate = 0.1f;
     private Vector3 _cachedMoveInput;
     private Vector3 _lastAimDirection = Vector3.forward;
@@ -88,7 +86,7 @@ public class MovementComponent : MonoBehaviour
         _rigid.interpolation = RigidbodyInterpolation.Interpolate;
         _rigid.isKinematic = !isControlled;
         _rigid.velocity = Vector3.zero;
-        if (serverTick != 0 && _isControlled) MainUI.Instance.OnStartTickOffsetChanged(serverTick);
+        if (serverTick != 0 && _isControlled && MainUI.Instance != null) MainUI.Instance.OnStartTickOffsetChanged(serverTick);
     }
 
     private void Update()
@@ -138,8 +136,12 @@ public class MovementComponent : MonoBehaviour
         {
             if (_hasServerState)
             {
-                MainUI.Instance.OnServerPosChanged(_serverPosition);
-                Reconcile(_lastServerState);
+                if (MainUI.Instance != null)
+                {
+                    MainUI.Instance.OnServerPosChanged(_serverPosition);
+                }
+
+                Reconcile(_lastAuthoritativeState);
                 _hasServerState = false;
             }
 
@@ -147,21 +149,27 @@ public class MovementComponent : MonoBehaviour
         }
         else
         {
-            _lerpTime += Time.fixedDeltaTime / 0.05f;
-            _rigid.MovePosition(Vector3.Lerp(_currentPos, _serverPos, _lerpTime));
+            var sample = _remoteSnapshotInterpolator.Sample(Time.time);
+            if (sample.HasValue)
+            {
+                _rigid.MovePosition(sample.Position);
+                _rigid.MoveRotation(sample.Rotation);
+                _rigid.velocity = sample.Velocity;
+            }
         }
     }
 
-    private void Reconcile(PlayerState state)
+    private void Reconcile(ClientAuthoritativePlayerStateSnapshot snapshot)
     {
-        if (!_predictionBuffer.TryApplyAuthoritativeState(state, out var replayInputs))
+        if (!_predictionBuffer.TryApplyAuthoritativeState(snapshot.SourceState, out var replayInputs))
         {
             return;
         }
 
-        _serverPosition = state.Position.ToVector3();
+        _serverPosition = snapshot.Position;
         _rigid.position = Vector3.Lerp(_rigid.position, _serverPosition, _lerpRate);
-        _rigid.velocity = Vector3.zero;
+        _rigid.rotation = Quaternion.Slerp(_rigid.rotation, snapshot.RotationQuaternion, _lerpRate);
+        _rigid.velocity = snapshot.Velocity;
         ReplayPendingInputs(replayInputs);
     }
 
@@ -197,34 +205,24 @@ public class MovementComponent : MonoBehaviour
         _rigid.velocity = _speed * input;
         if (_isControlled)
         {
-            MainUI.Instance.OnClientPosChanged(_rigid.position);
+            if (MainUI.Instance != null)
+            {
+                MainUI.Instance.OnClientPosChanged(_rigid.position);
+            }
         }
     }
 
-    public void OnServerState(PlayerState state)
+    public void OnAuthoritativeState(ClientAuthoritativePlayerStateSnapshot snapshot)
     {
         if (_isControlled)
         {
-            if (_predictionBuffer.LastAuthoritativeTick.HasValue &&
-                state.Tick <= _predictionBuffer.LastAuthoritativeTick.Value)
-            {
-                return;
-            }
-
-            _lastServerState = state;
+            _lastAuthoritativeState = snapshot;
             _hasServerState = true;
         }
         else
         {
-            if (_lastServerState != null && state.Tick < _lastServerState.Tick)
-            {
-                return;
-            }
-
-            _lastServerState = state;
-            _serverPos = state.Position.ToVector3();
-            _currentPos = _rigid.position;
-            _lerpTime = 0f;
+            _lastAuthoritativeState = snapshot;
+            _remoteSnapshotInterpolator.TryAddSnapshot(snapshot, Time.time);
         }
     }
 
@@ -233,7 +231,10 @@ public class MovementComponent : MonoBehaviour
         _currentTickOffset = serverTick - Tick - _startTickOffset;
         if (_isControlled)
         {
-            MainUI.Instance.OnServerTickChanged(serverTick);
+            if (MainUI.Instance != null)
+            {
+                MainUI.Instance.OnServerTickChanged(serverTick);
+            }
         }
 
         if (_currentTickOffset < 0)
@@ -255,7 +256,10 @@ public class MovementComponent : MonoBehaviour
 
         if (_isControlled)
         {
-            MainUI.Instance.OnClientPosChanged(_rigid.position);
+            if (MainUI.Instance != null)
+            {
+                MainUI.Instance.OnClientPosChanged(_rigid.position);
+            }
         }
     }
 }

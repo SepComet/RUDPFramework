@@ -14,7 +14,12 @@ public class PlayerUI : MonoBehaviour
         _canvas = this.transform.GetComponent<Canvas>();
         _mainCamera = Camera.main;
         this._master = master;
-        this._text.text = _master.PlayerId;
+        RefreshText();
+    }
+
+    public void SyncAuthoritativeState(ClientAuthoritativePlayerStateSnapshot snapshot)
+    {
+        RefreshText(snapshot);
     }
 
     private void FixedUpdate()
@@ -40,5 +45,21 @@ public class PlayerUI : MonoBehaviour
     private void OnBecameInvisible()
     {
         _isVisible = false;
+    }
+
+    private void RefreshText(ClientAuthoritativePlayerStateSnapshot snapshot = null)
+    {
+        if (_text == null || _master == null)
+        {
+            return;
+        }
+
+        if (snapshot == null)
+        {
+            _text.text = _master.PlayerId;
+            return;
+        }
+
+        _text.text = $"{_master.PlayerId}\nHP:{snapshot.Hp} Tick:{snapshot.Tick}";
     }
 }
