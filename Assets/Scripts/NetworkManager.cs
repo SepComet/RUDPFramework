@@ -13,16 +13,17 @@ public class NetworkManager : MonoBehaviour
     private const int DefaultReliablePort = 8080;
     private const int DefaultSyncPort = 8081;
 
-    public static NetworkManager Instance;
-    private SharedNetworkRuntime _networkRuntime;
-    private IPEndPoint _serverPoint;
-    private uint _sequence = 0;
-    private Task _networkDrainTask = Task.CompletedTask;
     [SerializeField] private GameObject _wrongWindow;
     [SerializeField] private bool _enableNetworkDiagnosticsOverlay = true;
     [SerializeField] private string _serverIp = DefaultServerIp;
     [SerializeField] private int _reliablePort = DefaultReliablePort;
     [SerializeField] private int _syncPort = DefaultSyncPort;
+    
+    public static NetworkManager Instance;
+    private SharedNetworkRuntime _networkRuntime;
+    private IPEndPoint _serverPoint;
+    private uint _sequence = 0;
+    private Task _networkDrainTask = Task.CompletedTask;
 
     private void Awake()
     {
@@ -197,22 +198,21 @@ public class NetworkManager : MonoBehaviour
         Debug.Log($"[NetworkManager] Session {lifecycleEvent.PreviousState} -> {lifecycleEvent.CurrentState} ({lifecycleEvent.Kind}) {lifecycleEvent.Reason}");
     }
 
-    public void SendMoveInput(string playerId, Vector3 input)
-    {
-        var message = new MoveInput
-        {
-            PlayerId = playerId,
-            MoveX = input.x,
-            MoveY = input.z
-        };
-        _networkRuntime.MessageManager.SendMessage(message, MessageType.MoveInput);
-        Debug.Log($"PlayerMoveSeq: {_sequence++}");
-    }
-
     public void SendMoveInput(MoveInput message)
     {
         _networkRuntime.MessageManager.SendMessage(message, MessageType.MoveInput);
         Debug.Log($"PlayerMoveSeq: {_sequence++}");
+    }
+
+    public void SendShootInput(string playerId, Vector3 direction, long tick = 0, string targetId = "")
+    {
+        SendShootInput(ClientGameplayInputFlow.CreateShootInput(playerId, tick, direction, targetId));
+    }
+
+    public void SendShootInput(ShootInput message)
+    {
+        _networkRuntime.MessageManager.SendMessage(message, MessageType.ShootInput);
+        Debug.Log($"PlayerShootSeq: {_sequence++}");
     }
 
     public void SendLoginRequest(string playerId, int speed)

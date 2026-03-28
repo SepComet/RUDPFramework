@@ -1,0 +1,16 @@
+{
+    "name": "NetworkFramework",
+    "rootNamespace": "",
+    "references": [
+        "GUID:d972d56d6b084684b5b0666f4856da75"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

@@ -87,6 +87,38 @@ namespace Tests.EditMode.Network
         }
 
         [Test]
+        public void SendMessage_ZeroVectorMoveInput_UsesSyncLanePolicy()
+        {
+            var reliableTransport = new FakeTransport();
+            var syncTransport = new FakeTransport();
+            var manager = new MessageManager(
+                reliableTransport,
+                new MainThreadNetworkDispatcher(),
+                new DefaultMessageDeliveryPolicyResolver(),
+                syncTransport);
+            var message = new MoveInput
+            {
+                PlayerId = "player-1",
+                Tick = 13,
+                MoveX = 0f,
+                MoveY = 0f
+            };
+
+            manager.SendMessage(message, MessageType.MoveInput);
+
+            Assert.That(reliableTransport.SendCallCount, Is.EqualTo(0));
+            Assert.That(syncTransport.SendCallCount, Is.EqualTo(1));
+
+            var envelope = Envelope.Parser.ParseFrom(syncTransport.LastSentData);
+            var parsed = MoveInput.Parser.ParseFrom(envelope.Payload);
+            Assert.That(envelope.Type, Is.EqualTo((int)MessageType.MoveInput));
+            Assert.That(parsed.PlayerId, Is.EqualTo("player-1"));
+            Assert.That(parsed.Tick, Is.EqualTo(13));
+            Assert.That(parsed.MoveX, Is.EqualTo(0f));
+            Assert.That(parsed.MoveY, Is.EqualTo(0f));
+        }
+
+        [Test]
         public void SendMessage_ShootInput_UsesReliableLanePolicy()
         {
             var reliableTransport = new FakeTransport();

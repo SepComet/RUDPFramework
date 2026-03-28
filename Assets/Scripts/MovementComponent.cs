@@ -4,6 +4,54 @@ using Network.NetworkApplication;
 using UnityEngine;
 using Vector3 = UnityEngine.Vector3;
 
+public static class ClientGameplayInputFlow
+{
+    public static bool HasPlanarInput(Vector3 input)
+    {
+        return new Vector2(input.x, input.z).sqrMagnitude > 0f;
+    }
+
+    public static bool TryCreateMoveInput(string playerId, long tick, Vector3 input, bool stopMessagePending, out MoveInput message)
+    {
+        if (!HasPlanarInput(input) && !stopMessagePending)
+        {
+            message = null;
+            return false;
+        }
+
+        message = new MoveInput
+        {
+            PlayerId = playerId,
+            Tick = tick,
+            MoveX = input.x,
+            MoveY = input.z
+        };
+        return true;
+    }
+
+    public static ShootInput CreateShootInput(string playerId, long tick, Vector3 aimDirection, string targetId = "")
+    {
+        var planarDirection = new Vector3(aimDirection.x, 0f, aimDirection.z);
+        if (planarDirection.sqrMagnitude <= 0f)
+        {
+            planarDirection = Vector3.forward;
+        }
+        else
+        {
+            planarDirection.Normalize();
+        }
+
+        return new ShootInput
+        {
+            PlayerId = playerId,
+            Tick = tick,
+            DirX = planarDirection.x,
+            DirY = planarDirection.z,
+            TargetId = targetId ?? string.Empty
+        };
+    }
+}
+
 public class MovementComponent : MonoBehaviour
 {
     [SerializeField] private float _sendInterval = 0.05f;
@@ -26,7 +74,10 @@ public class MovementComponent : MonoBehaviour
     private Vector3 _currentPos;
     private float _lerpTime;
     [SerializeField] private float _lerpRate = 0.1f;
-    private MoveInput _cachedInput;
+    private Vector3 _cachedMoveInput;
+    private Vector3 _lastAimDirection = Vector3.forward;
+    private bool _wasMovingLastFrame;
+    private bool _stopMessagePending;
 
     public void Init(bool isControlled, Player master, int speed = 0, long serverTick = 0)
     {
@@ -44,13 +95,33 @@ public class MovementComponent : MonoBehaviour
     {
         if (_isControlled)
         {
-            _cachedInput = CaptureInput();
+            _cachedMoveInput = CaptureMovement();
+            var hasMovement = ClientGameplayInputFlow.HasPlanarInput(_cachedMoveInput);
+            if (hasMovement)
+            {
+                _lastAimDirection = _cachedMoveInput;
+                _stopMessagePending = false;
+            }
+            else if (_wasMovingLastFrame)
+            {
+                _stopMessagePending = true;
+            }
+
+            _wasMovingLastFrame = hasMovement;
+
+            var shootInput = CaptureShootInput();
+            if (shootInput != null)
+            {
+                NetworkManager.Instance.SendShootInput(shootInput);
+            }
 
             if (Time.time - _lastSendTime > _sendInterval)
             {
-                if (_cachedInput != null)
+                if (ClientGameplayInputFlow.TryCreateMoveInput(_master.PlayerId, Tick, _cachedMoveInput, _stopMessagePending, out var moveInput))
                 {
-                    NetworkManager.Instance.SendMoveInput(_cachedInput);
+                    NetworkManager.Instance.SendMoveInput(moveInput);
+                    _predictionBuffer.Record(moveInput);
+                    _stopMessagePending = false;
                 }
 
                 _lastSendTime = Time.time;
@@ -72,11 +143,7 @@ public class MovementComponent : MonoBehaviour
                 _hasServerState = false;
             }
 
-            Simulate(_cachedInput);
-            if (_cachedInput != null)
-            {
-                _predictionBuffer.Record(_cachedInput);
-            }
+            Simulate(_cachedMoveInput);
         }
         else
         {
@@ -98,27 +165,36 @@ public class MovementComponent : MonoBehaviour
         ReplayPendingInputs(replayInputs);
     }
 
-    private MoveInput CaptureInput()
+    private Vector3 CaptureMovement()
     {
-        var input = new Vector3(Input.GetAxisRaw("Horizontal"), 0, Input.GetAxisRaw("Vertical"));
-        if (input == Vector3.zero)
+        return new Vector3(Input.GetAxisRaw("Horizontal"), 0f, Input.GetAxisRaw("Vertical"));
+    }
+
+    private ShootInput CaptureShootInput()
+    {
+        if (!Input.GetMouseButtonDown(0))
         {
             return null;
         }
 
-        return new MoveInput
-        {
-            PlayerId = _master.PlayerId,
-            Tick = Tick,
-            MoveX = input.x,
-            MoveY = input.z
-        };
+        return ClientGameplayInputFlow.CreateShootInput(_master.PlayerId, Tick, ResolveAimDirection());
     }
 
-    private void Simulate(MoveInput input)
+    private Vector3 ResolveAimDirection()
     {
-        var dir = input == null ? Vector3.zero : new Vector3(input.MoveX, 0f, input.MoveY);
-        _rigid.velocity = _speed * dir;
+        if (ClientGameplayInputFlow.HasPlanarInput(_lastAimDirection))
+        {
+            return _lastAimDirection;
+        }
+
+        var forward = _master != null ? _master.transform.forward : transform.forward;
+        var planarForward = new Vector3(forward.x, 0f, forward.z);
+        return ClientGameplayInputFlow.HasPlanarInput(planarForward) ? planarForward : Vector3.forward;
+    }
+
+    private void Simulate(Vector3 input)
+    {
+        _rigid.velocity = _speed * input;
         if (_isControlled)
         {
             MainUI.Instance.OnClientPosChanged(_rigid.position);

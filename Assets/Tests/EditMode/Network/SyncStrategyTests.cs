@@ -6,11 +6,54 @@ using Network.NetworkApplication;
 using Network.NetworkHost;
 using Network.NetworkTransport;
 using NUnit.Framework;
+using UnityEngine;
+using Vector3 = UnityEngine.Vector3;
 
 namespace Tests.EditMode.Network
 {
     public class SyncStrategyTests
     {
+        [Test]
+        public void ClientGameplayInputFlow_StopTransition_EmitsSingleZeroVectorMoveInput()
+        {
+            var released = ClientGameplayInputFlow.TryCreateMoveInput(
+                "player-1",
+                8,
+                Vector3.zero,
+                true,
+                out var stopInput);
+            var continuedIdle = ClientGameplayInputFlow.TryCreateMoveInput(
+                "player-1",
+                9,
+                Vector3.zero,
+                false,
+                out var idleInput);
+
+            Assert.That(released, Is.True);
+            Assert.That(stopInput, Is.Not.Null);
+            Assert.That(stopInput.PlayerId, Is.EqualTo("player-1"));
+            Assert.That(stopInput.Tick, Is.EqualTo(8));
+            Assert.That(stopInput.MoveX, Is.EqualTo(0f));
+            Assert.That(stopInput.MoveY, Is.EqualTo(0f));
+            Assert.That(continuedIdle, Is.False);
+            Assert.That(idleInput, Is.Null);
+        }
+
+        [Test]
+        public void ClientGameplayInputFlow_CreateShootInput_UsesSplitShootMessageFields()
+        {
+            var shootInput = ClientGameplayInputFlow.CreateShootInput(
+                "player-1",
+                21,
+                new Vector3(2f, 0f, 0f));
+
+            Assert.That(shootInput.PlayerId, Is.EqualTo("player-1"));
+            Assert.That(shootInput.Tick, Is.EqualTo(21));
+            Assert.That(shootInput.DirX, Is.EqualTo(1f));
+            Assert.That(shootInput.DirY, Is.EqualTo(0f));
+            Assert.That(shootInput.TargetId, Is.EqualTo(string.Empty));
+        }
+
         [Test]
         public void ClientPredictionBuffer_AuthoritativeState_PrunesAcknowledgedMoveInputs()
         {
