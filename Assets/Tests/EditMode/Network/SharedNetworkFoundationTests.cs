@@ -76,6 +76,27 @@ namespace Tests.EditMode.Network
         }
 
         [Test]
+        public void SharedNetworkRuntime_StartStop_WithDistinctSyncTransport_ControlsBothLanes()
+        {
+            var reliableTransport = new FakeTransport();
+            var syncTransport = new FakeTransport();
+            var runtime = new SharedNetworkRuntime(
+                reliableTransport,
+                new ImmediateNetworkMessageDispatcher(),
+                syncTransport: syncTransport);
+
+            runtime.StartAsync().GetAwaiter().GetResult();
+
+            Assert.That(reliableTransport.StartCallCount, Is.EqualTo(1));
+            Assert.That(syncTransport.StartCallCount, Is.EqualTo(1));
+
+            runtime.Stop();
+
+            Assert.That(reliableTransport.StopCallCount, Is.EqualTo(1));
+            Assert.That(syncTransport.StopCallCount, Is.EqualTo(1));
+        }
+
+        [Test]
         public void SharedNetworkRuntime_RoutesMoveInputThroughConfiguredSyncLane()
         {
             var reliableTransport = new FakeTransport();
@@ -103,6 +124,23 @@ namespace Tests.EditMode.Network
             Assert.That(MoveInput.Parser.ParseFrom(envelope.Payload).Tick, Is.EqualTo(33));
         }
 
+        [Test]
+        public void ServerNetworkHost_StartsDistinctSyncTransport_AndTracksInboundActivityFromSyncLane()
+        {
+            var reliableTransport = new FakeTransport();
+            var syncTransport = new FakeTransport();
+            var host = new ServerNetworkHost(reliableTransport, syncTransport: syncTransport);
+
+            host.StartAsync().GetAwaiter().GetResult();
+            syncTransport.EmitReceive(BuildEnvelope(MessageType.Heartbeat, new Heartbeat()), Sender);
+
+            Assert.That(reliableTransport.StartCallCount, Is.EqualTo(1));
+            Assert.That(syncTransport.StartCallCount, Is.EqualTo(1));
+            Assert.That(host.ManagedSessions.Count, Is.EqualTo(1));
+            Assert.That(host.TryGetSession(Sender, out var session), Is.True);
+            Assert.That(session.SessionManager.State, Is.EqualTo(ConnectionState.TransportConnected));
+        }
+
         private static byte[] BuildEnvelope(MessageType type, IMessage payload)
         {
             return new Envelope
@@ -122,15 +160,21 @@ namespace Tests.EditMode.Network
 
             public int SendCallCount { get; private set; }
 
+            public int StartCallCount { get; private set; }
+
+            public int StopCallCount { get; private set; }
+
             public event Action<byte[], IPEndPoint> OnReceive;
 
             public Task StartAsync()
             {
+                StartCallCount++;
                 return Task.CompletedTask;
             }
 
             public void Stop()
             {
+                StopCallCount++;
             }
 
             public void Send(byte[] data)

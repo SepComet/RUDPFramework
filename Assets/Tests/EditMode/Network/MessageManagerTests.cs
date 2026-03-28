@@ -141,6 +141,28 @@ namespace Tests.EditMode.Network
         }
 
         [Test]
+        public void SendMessage_Heartbeat_UsesReliableLanePolicy()
+        {
+            var reliableTransport = new FakeTransport();
+            var syncTransport = new FakeTransport();
+            var manager = new MessageManager(
+                reliableTransport,
+                new MainThreadNetworkDispatcher(),
+                new DefaultMessageDeliveryPolicyResolver(),
+                syncTransport);
+            var message = new Heartbeat();
+
+            manager.SendMessage(message, MessageType.Heartbeat);
+
+            Assert.That(reliableTransport.SendCallCount, Is.EqualTo(1));
+            Assert.That(syncTransport.SendCallCount, Is.EqualTo(0));
+
+            var envelope = Envelope.Parser.ParseFrom(reliableTransport.LastSentData);
+            Assert.That(envelope.Type, Is.EqualTo((int)MessageType.Heartbeat));
+            Assert.That(envelope.Payload.ToByteArray(), Is.EqualTo(message.ToByteArray()));
+        }
+
+        [Test]
         public void BroadcastMessage_UsesBroadcastSend()
         {
             var transport = new FakeTransport();

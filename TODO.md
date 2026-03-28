@@ -65,17 +65,17 @@ Acceptance:
 
 ### 5. Preserve And Use Dual-Transport Runtime Wiring
 
-- [ ] Verify [`Assets/Scripts/Network/NetworkApplication/SharedNetworkRuntime.cs`](D:/Learn/GameLearn/UnityProjects/NetworkFW/Assets/Scripts/Network/NetworkApplication/SharedNetworkRuntime.cs) is used with both reliable and sync transports
-- [ ] Verify [`Assets/Scripts/Network/NetworkHost/ServerNetworkHost.cs`](D:/Learn/GameLearn/UnityProjects/NetworkFW/Assets/Scripts/Network/NetworkHost/ServerNetworkHost.cs) is used with both reliable and sync transports
-- [ ] Keep the current dual-transport constructor shape for MVP
-- [ ] Do not expand `ITransport` yet unless MVP proves it is necessary
+- [x] Verify [`Assets/Scripts/Network/NetworkApplication/SharedNetworkRuntime.cs`](D:/Learn/GameLearn/UnityProjects/NetworkFW/Assets/Scripts/Network/NetworkApplication/SharedNetworkRuntime.cs) is used with both reliable and sync transports
+- [x] Verify [`Assets/Scripts/Network/NetworkHost/ServerNetworkHost.cs`](D:/Learn/GameLearn/UnityProjects/NetworkFW/Assets/Scripts/Network/NetworkHost/ServerNetworkHost.cs) is used with both reliable and sync transports
+- [x] Keep the current dual-transport constructor shape for MVP
+- [x] Do not expand `ITransport` yet unless MVP proves it is necessary
 
 Acceptance:
 
-- [ ] Client runtime can start with two distinct transport instances
-- [ ] Server host can start with two distinct transport instances
-- [ ] `MoveInput` / `PlayerState` can flow through the sync transport
-- [ ] `ShootInput` / `CombatEvent` can flow through the reliable transport
+- [x] Client runtime can start with two distinct transport instances
+- [x] Server host can start with two distinct transport instances
+- [x] `MoveInput` / `PlayerState` can flow through the sync transport
+- [x] `ShootInput` / `CombatEvent` can flow through the reliable transport
 
 ### 6. Finalize MVP Message Fields
 

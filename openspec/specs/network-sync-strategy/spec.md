@@ -5,21 +5,21 @@ Define how client and server route high-frequency gameplay synchronization traff
 
 ## Requirements
 ### Requirement: Hosts assign delivery policies to synchronization message types
-The shared networking core SHALL allow hosts to map business message types to delivery policies. `MoveInput` and `PlayerState` MUST be assignable to a high-frequency sync policy that is independent from the reliable ordered control policy used by login and lifecycle traffic, while `ShootInput` and `CombatEvent` MUST remain independently routable business messages that can stay on the reliable ordered lane.
+The shared networking core SHALL allow hosts to map business message types to delivery policies. The default shared resolver used by `MessageManager` MUST map `MoveInput` and `PlayerState` to `HighFrequencySync`, while `ShootInput`, `CombatEvent`, and control-plane messages MUST resolve to `ReliableOrdered` unless a host intentionally supplies a different resolver.
 
-#### Scenario: High-frequency movement and state messages use a dedicated policy
-- **WHEN** the client or server sends `MoveInput` or `PlayerState`
-- **THEN** the runtime resolves a high-frequency sync delivery policy for that message type
-- **THEN** the message is sent through the sync lane configured for that policy instead of defaulting to reliable ordered delivery
+#### Scenario: Default resolver sends movement and state traffic to the sync lane
+- **WHEN** the runtime uses `DefaultMessageDeliveryPolicyResolver` to send `MoveInput` or `PlayerState`
+- **THEN** the resolver returns `HighFrequencySync`
+- **THEN** `MessageManager` sends that envelope through the sync transport lane when one is configured
 
-#### Scenario: Shooting and combat events keep reliable ordered delivery
-- **WHEN** the client or server sends `ShootInput` or `CombatEvent`
-- **THEN** the runtime resolves the reliable ordered delivery policy for that message type
-- **THEN** those messages continue to use the reliable transport path
+#### Scenario: Default resolver keeps shooting and combat events on the reliable lane
+- **WHEN** the runtime uses `DefaultMessageDeliveryPolicyResolver` to send `ShootInput` or `CombatEvent`
+- **THEN** the resolver returns `ReliableOrdered`
+- **THEN** `MessageManager` sends that envelope through the reliable transport lane
 
-#### Scenario: Control traffic keeps reliable delivery
-- **WHEN** the runtime sends login, logout, heartbeat, or other session-management messages
-- **THEN** the runtime resolves the reliable ordered control policy
+#### Scenario: Default resolver preserves reliable control traffic
+- **WHEN** the runtime uses `DefaultMessageDeliveryPolicyResolver` to send login, logout, heartbeat, or other session-management messages
+- **THEN** the resolver returns `ReliableOrdered`
 - **THEN** those messages continue to use the reliable transport path
 
 ### Requirement: Sequenced sync receivers discard stale gameplay updates
