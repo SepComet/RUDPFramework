@@ -79,16 +79,16 @@ Acceptance:
 
 ### 6. Finalize MVP Message Fields
 
-- [ ] Define `MoveInput` fields: `playerId`, `tick`, `moveX`, `moveY`
-- [ ] Define `ShootInput` fields: `playerId`, `tick`, `dirX`, `dirY`, optional `targetId`
-- [ ] Define `PlayerState` fields: `playerId`, `tick`, `position`, `rotation`, `hp`, optional `velocity`
-- [ ] Define `CombatEvent` fields: `tick`, `eventType`, `attackerId`, `targetId`, `damage`, optional `hitPosition`
-- [ ] Add `CombatEventType` if needed
+- [x] Define `MoveInput` fields: `playerId`, `tick`, `moveX`, `moveY`
+- [x] Define `ShootInput` fields: `playerId`, `tick`, `dirX`, `dirY`, optional `targetId`
+- [x] Define `PlayerState` fields: `playerId`, `tick`, `position`, `rotation`, `hp`, optional `velocity`
+- [x] Define `CombatEvent` fields: `tick`, `eventType`, `attackerId`, `targetId`, `damage`, optional `hitPosition`
+- [x] Add `CombatEventType` if needed
 
 Acceptance:
 
-- [ ] MVP gameplay data can be expressed without ad hoc payload extensions
-- [ ] Position, HP, and combat results all have explicit authoritative messages
+- [x] MVP gameplay data can be expressed without ad hoc payload extensions
+- [x] Position, HP, and combat results all have explicit authoritative messages
 
 ### 7. Add Message Routing Tests
 

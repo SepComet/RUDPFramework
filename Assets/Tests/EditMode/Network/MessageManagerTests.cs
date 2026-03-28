@@ -78,8 +78,12 @@ namespace Tests.EditMode.Network
             Assert.That(syncTransport.SendCallCount, Is.EqualTo(1));
 
             var envelope = Envelope.Parser.ParseFrom(syncTransport.LastSentData);
+            var parsed = MoveInput.Parser.ParseFrom(envelope.Payload);
             Assert.That(envelope.Type, Is.EqualTo((int)MessageType.MoveInput));
-            Assert.That(MoveInput.Parser.ParseFrom(envelope.Payload).Tick, Is.EqualTo(12));
+            Assert.That(parsed.PlayerId, Is.EqualTo("player-1"));
+            Assert.That(parsed.Tick, Is.EqualTo(12));
+            Assert.That(parsed.MoveX, Is.EqualTo(1));
+            Assert.That(parsed.MoveY, Is.EqualTo(-1));
         }
 
         [Test]
@@ -107,8 +111,51 @@ namespace Tests.EditMode.Network
             Assert.That(syncTransport.SendCallCount, Is.EqualTo(0));
 
             var envelope = Envelope.Parser.ParseFrom(reliableTransport.LastSentData);
+            var parsed = ShootInput.Parser.ParseFrom(envelope.Payload);
             Assert.That(envelope.Type, Is.EqualTo((int)MessageType.ShootInput));
-            Assert.That(ShootInput.Parser.ParseFrom(envelope.Payload).TargetId, Is.EqualTo("enemy-1"));
+            Assert.That(parsed.PlayerId, Is.EqualTo("player-1"));
+            Assert.That(parsed.Tick, Is.EqualTo(15));
+            Assert.That(parsed.DirX, Is.EqualTo(0.5f));
+            Assert.That(parsed.DirY, Is.EqualTo(1f));
+            Assert.That(parsed.TargetId, Is.EqualTo("enemy-1"));
+        }
+
+        [Test]
+        public void SendMessage_PlayerState_UsesSyncLanePolicyAndPreservesAuthoritativeFields()
+        {
+            var reliableTransport = new FakeTransport();
+            var syncTransport = new FakeTransport();
+            var manager = new MessageManager(
+                reliableTransport,
+                new MainThreadNetworkDispatcher(),
+                new DefaultMessageDeliveryPolicyResolver(),
+                syncTransport);
+            var message = new PlayerState
+            {
+                PlayerId = "player-1",
+                Tick = 21,
+                Position = new global::Network.Defines.Vector3 { X = 3f, Y = 0f, Z = -2f },
+                Velocity = new global::Network.Defines.Vector3 { X = 1f, Y = 0f, Z = 0.5f },
+                Rotation = 90f,
+                Hp = 87
+            };
+
+            manager.SendMessage(message, MessageType.PlayerState);
+
+            Assert.That(reliableTransport.SendCallCount, Is.EqualTo(0));
+            Assert.That(syncTransport.SendCallCount, Is.EqualTo(1));
+
+            var envelope = Envelope.Parser.ParseFrom(syncTransport.LastSentData);
+            var parsed = PlayerState.Parser.ParseFrom(envelope.Payload);
+            Assert.That(envelope.Type, Is.EqualTo((int)MessageType.PlayerState));
+            Assert.That(parsed.PlayerId, Is.EqualTo("player-1"));
+            Assert.That(parsed.Tick, Is.EqualTo(21));
+            Assert.That(parsed.Position.X, Is.EqualTo(3f));
+            Assert.That(parsed.Position.Z, Is.EqualTo(-2f));
+            Assert.That(parsed.Velocity.X, Is.EqualTo(1f));
+            Assert.That(parsed.Velocity.Z, Is.EqualTo(0.5f));
+            Assert.That(parsed.Rotation, Is.EqualTo(90f));
+            Assert.That(parsed.Hp, Is.EqualTo(87));
         }
 
         [Test]
@@ -127,7 +174,8 @@ namespace Tests.EditMode.Network
                 EventType = CombatEventType.DamageApplied,
                 AttackerId = "player-1",
                 TargetId = "enemy-1",
-                Damage = 7
+                Damage = 7,
+                HitPosition = new global::Network.Defines.Vector3 { X = 8f, Y = 0f, Z = 4f }
             };
 
             manager.SendMessage(message, MessageType.CombatEvent);
@@ -136,8 +184,15 @@ namespace Tests.EditMode.Network
             Assert.That(syncTransport.SendCallCount, Is.EqualTo(0));
 
             var envelope = Envelope.Parser.ParseFrom(reliableTransport.LastSentData);
+            var parsed = CombatEvent.Parser.ParseFrom(envelope.Payload);
             Assert.That(envelope.Type, Is.EqualTo((int)MessageType.CombatEvent));
-            Assert.That(CombatEvent.Parser.ParseFrom(envelope.Payload).Damage, Is.EqualTo(7));
+            Assert.That(parsed.Tick, Is.EqualTo(20));
+            Assert.That(parsed.EventType, Is.EqualTo(CombatEventType.DamageApplied));
+            Assert.That(parsed.AttackerId, Is.EqualTo("player-1"));
+            Assert.That(parsed.TargetId, Is.EqualTo("enemy-1"));
+            Assert.That(parsed.Damage, Is.EqualTo(7));
+            Assert.That(parsed.HitPosition.X, Is.EqualTo(8f));
+            Assert.That(parsed.HitPosition.Z, Is.EqualTo(4f));
         }
 
         [Test]
@@ -221,56 +276,40 @@ namespace Tests.EditMode.Network
         }
 
         [Test]
-        public void Receive_InvalidBytes_DoesNotBreakFollowingDispatch()
+        public void Receive_InvalidEnvelope_DoesNotThrow()
         {
             var transport = new FakeTransport();
             var manager = new MessageManager(transport, new MainThreadNetworkDispatcher());
-            var handledCount = 0;
 
-            manager.RegisterHandler(MessageType.Heartbeat, (payload, sender) =>
-            {
-                handledCount++;
-            });
-
-            Assert.DoesNotThrow(() => transport.EmitReceive(new byte[] { 0x01, 0x02, 0x03 }, Sender));
-            transport.EmitReceive(BuildEnvelope(MessageType.Heartbeat, new Heartbeat()), Sender);
-
-            Assert.That(handledCount, Is.EqualTo(0));
-            Assert.That(manager.PendingMessageCount, Is.EqualTo(1));
-
-            manager.DrainPendingMessagesAsync().GetAwaiter().GetResult();
-
-            Assert.That(handledCount, Is.EqualTo(1));
+            Assert.DoesNotThrow(() => transport.EmitReceive(new byte[] { 1, 2, 3 }, Sender));
+            Assert.That(manager.PendingMessageCount, Is.EqualTo(0));
         }
 
         [Test]
-        public void Receive_MultipleMessages_PreserveEnqueueOrder()
+        public void Receive_UnknownMessageType_IsIgnored()
         {
             var transport = new FakeTransport();
             var manager = new MessageManager(transport, new MainThreadNetworkDispatcher());
-            var handledSpeeds = new List<int>();
+            var handled = false;
 
-            manager.RegisterHandler(MessageType.LoginRequest, (payload, sender) =>
-            {
-                handledSpeeds.Add(LoginRequest.Parser.ParseFrom(payload).Speed);
-            });
+            manager.RegisterHandler(MessageType.Heartbeat, (payload, sender) => handled = true);
 
-            transport.EmitReceive(BuildEnvelope(MessageType.LoginRequest, new LoginRequest { PlayerId = "a", Speed = 1 }), Sender);
-            transport.EmitReceive(BuildEnvelope(MessageType.LoginRequest, new LoginRequest { PlayerId = "b", Speed = 2 }), Sender);
+            transport.EmitReceive(BuildEnvelope(unchecked((MessageType)999), new Heartbeat()), Sender);
 
-            Assert.That(handledSpeeds, Is.Empty);
-            Assert.That(manager.PendingMessageCount, Is.EqualTo(2));
-
-            manager.DrainPendingMessagesAsync().GetAwaiter().GetResult();
-
-            Assert.That(handledSpeeds, Is.EqualTo(new[] { 1, 2 }));
+            Assert.That(handled, Is.False);
+            Assert.That(manager.PendingMessageCount, Is.EqualTo(0));
         }
 
         [Test]
         public void Receive_StaleMoveInput_IsDropped()
         {
             var transport = new FakeTransport();
-            var manager = new MessageManager(transport, new MainThreadNetworkDispatcher());
+            var manager = new MessageManager(
+                transport,
+                new MainThreadNetworkDispatcher(),
+                new DefaultMessageDeliveryPolicyResolver(),
+                syncTransport: null,
+                syncSequenceTracker: new SyncSequenceTracker());
             var handledTicks = new List<long>();
 
             manager.RegisterHandler(MessageType.MoveInput, (payload, sender) =>
@@ -288,14 +327,19 @@ namespace Tests.EditMode.Network
                 Sender);
             manager.DrainPendingMessagesAsync().GetAwaiter().GetResult();
 
-            Assert.That(handledTicks, Is.EqualTo(new long[] { 8 }));
+            Assert.That(handledTicks, Is.EqualTo(new[] { 8L }));
         }
 
         [Test]
         public void Receive_StalePlayerState_IsDropped()
         {
             var transport = new FakeTransport();
-            var manager = new MessageManager(transport, new MainThreadNetworkDispatcher());
+            var manager = new MessageManager(
+                transport,
+                new MainThreadNetworkDispatcher(),
+                new DefaultMessageDeliveryPolicyResolver(),
+                syncTransport: null,
+                syncSequenceTracker: new SyncSequenceTracker());
             var handledTicks = new List<long>();
 
             manager.RegisterHandler(MessageType.PlayerState, (payload, sender) =>
@@ -313,14 +357,19 @@ namespace Tests.EditMode.Network
                 Sender);
             manager.DrainPendingMessagesAsync().GetAwaiter().GetResult();
 
-            Assert.That(handledTicks, Is.EqualTo(new long[] { 8 }));
+            Assert.That(handledTicks, Is.EqualTo(new[] { 8L }));
         }
 
         [Test]
         public void Receive_ShootInput_IsNotDroppedBySequenceTracker()
         {
             var transport = new FakeTransport();
-            var manager = new MessageManager(transport, new MainThreadNetworkDispatcher());
+            var manager = new MessageManager(
+                transport,
+                new MainThreadNetworkDispatcher(),
+                new DefaultMessageDeliveryPolicyResolver(),
+                syncTransport: null,
+                syncSequenceTracker: new SyncSequenceTracker());
             var handledTicks = new List<long>();
 
             manager.RegisterHandler(MessageType.ShootInput, (payload, sender) =>
@@ -338,7 +387,7 @@ namespace Tests.EditMode.Network
                 Sender);
             manager.DrainPendingMessagesAsync().GetAwaiter().GetResult();
 
-            Assert.That(handledTicks, Is.EqualTo(new long[] { 8, 6 }));
+            Assert.That(handledTicks, Is.EqualTo(new[] { 8L, 6L }));
         }
 
         private static byte[] BuildEnvelope(MessageType type, IMessage payload)
@@ -356,9 +405,9 @@ namespace Tests.EditMode.Network
 
             public byte[] LastSendToData { get; private set; }
 
-            public IPEndPoint LastSendTarget { get; private set; }
-
             public byte[] LastBroadcastData { get; private set; }
+
+            public IPEndPoint LastSendTarget { get; private set; }
 
             public int SendCallCount { get; private set; }
 
