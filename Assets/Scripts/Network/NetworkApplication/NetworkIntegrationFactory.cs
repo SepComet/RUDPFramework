@@ -58,7 +58,8 @@ namespace Network.NetworkApplication
             Func<DateTimeOffset> utcNowProvider = null,
             IMessageDeliveryPolicyResolver deliveryPolicyResolver = null,
             SyncSequenceTracker syncSequenceTracker = null,
-            Func<int, ITransport> transportFactory = null)
+            Func<int, ITransport> transportFactory = null,
+            ServerAuthoritativeMovementConfiguration authoritativeMovement = null)
         {
             ValidateDualPortConfiguration(reliablePort, syncPort);
 
@@ -82,7 +83,8 @@ namespace Network.NetworkApplication
                 utcNowProvider,
                 syncTransport,
                 deliveryPolicyResolver,
-                syncSequenceTracker);
+                syncSequenceTracker,
+                authoritativeMovement);
         }
 
         public static Task<ServerRuntimeHandle> StartServerRuntimeAsync(ServerRuntimeConfiguration configuration)

@@ -23,7 +23,8 @@ namespace Network.NetworkHost
                 configuration.UtcNowProvider,
                 configuration.DeliveryPolicyResolver,
                 configuration.SyncSequenceTracker,
-                configuration.TransportFactory);
+                configuration.TransportFactory,
+                configuration.AuthoritativeMovement);
 
             try
             {

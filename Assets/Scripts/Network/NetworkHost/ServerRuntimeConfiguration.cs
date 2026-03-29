@@ -32,6 +32,8 @@ namespace Network.NetworkHost
 
         public Func<int, ITransport> TransportFactory { get; set; }
 
+        public ServerAuthoritativeMovementConfiguration AuthoritativeMovement { get; set; }
+
         internal void Validate()
         {
             if (ReliablePort <= 0)
@@ -39,20 +41,20 @@ namespace Network.NetworkHost
                 throw new ArgumentOutOfRangeException(nameof(ReliablePort), "Reliable port must be positive.");
             }
 
-            if (!SyncPort.HasValue)
+            if (SyncPort.HasValue)
             {
-                return;
+                if (SyncPort.Value <= 0)
+                {
+                    throw new ArgumentOutOfRangeException(nameof(SyncPort), "Sync port must be positive.");
+                }
+
+                if (SyncPort.Value == ReliablePort)
+                {
+                    throw new ArgumentException("Sync port must differ from reliable port.", nameof(SyncPort));
+                }
             }
 
-            if (SyncPort.Value <= 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(SyncPort), "Sync port must be positive.");
-            }
-
-            if (SyncPort.Value == ReliablePort)
-            {
-                throw new ArgumentException("Sync port must differ from reliable port.", nameof(SyncPort));
-            }
+            AuthoritativeMovement?.Validate();
         }
     }
 }

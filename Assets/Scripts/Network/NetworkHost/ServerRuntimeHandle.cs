@@ -23,6 +23,8 @@ namespace Network.NetworkHost
 
         public IReadOnlyList<ManagedNetworkSession> ManagedSessions => host.ManagedSessions;
 
+        public IReadOnlyList<ServerAuthoritativeMovementState> AuthoritativeMovementStates => host.AuthoritativeMovementStates;
+
         public event Action<MultiSessionLifecycleEvent> LifecycleChanged
         {
             add => host.LifecycleChanged += value;
@@ -39,9 +41,19 @@ namespace Network.NetworkHost
             host.UpdateLifecycle();
         }
 
+        public void UpdateAuthoritativeMovement(TimeSpan elapsed)
+        {
+            host.UpdateAuthoritativeMovement(elapsed);
+        }
+
         public bool TryGetSession(IPEndPoint remoteEndPoint, out ManagedNetworkSession session)
         {
             return host.TryGetSession(remoteEndPoint, out session);
+        }
+
+        public bool TryGetAuthoritativeMovementState(IPEndPoint remoteEndPoint, out ServerAuthoritativeMovementState state)
+        {
+            return host.TryGetAuthoritativeMovementState(remoteEndPoint, out state);
         }
 
         public void Stop()

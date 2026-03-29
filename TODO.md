@@ -26,11 +26,11 @@ Still missing for MVP:
 - [ ] Client-side `ShootInput` send path
 - [ ] Client-side `CombatEvent` receive/apply path
 - [x] Server startup path that actually uses `ServerNetworkHost`
-- [ ] Server-authoritative movement/state loop
+- [x] Server-authoritative movement/state loop
 - [ ] Server-authoritative shooting/combat resolution loop
 - [ ] Full `PlayerState` field application for rotation / HP / velocity
 - [ ] Remote-player snapshot buffering and interpolation strategy
-- [ ] Explicit movement-stop handling via zero-input `MoveInput`
+- [x] Explicit movement-stop handling via zero-input `MoveInput`
 - [ ] End-to-end gameplay regression coverage
 - [ ] Re-run build/test in an environment with the required .NET runtime installed
 
@@ -124,18 +124,18 @@ Acceptance:
 
 ### 7. Implement Server-Authoritative Movement And State Broadcast
 
-- [ ] Register `MoveInput` handling on the server
-- [ ] Maintain authoritative per-player movement state on the server
-- [ ] Validate and apply move input before mutating authoritative state
-- [ ] Use tick-aware stale filtering per peer without cross-peer interference
-- [ ] Broadcast authoritative `PlayerState` snapshots on the sync lane at a fixed cadence
-- [ ] Ensure zero-vector movement input stops authoritative movement
+- [x] Register `MoveInput` handling on the server
+- [x] Maintain authoritative per-player movement state on the server
+- [x] Validate and apply move input before mutating authoritative state
+- [x] Use tick-aware stale filtering per peer without cross-peer interference
+- [x] Broadcast authoritative `PlayerState` snapshots on the sync lane at a fixed cadence
+- [x] Ensure zero-vector movement input stops authoritative movement
 
 Acceptance:
 
-- [ ] Server owns final position and movement resolution
-- [ ] Clients receive authoritative `PlayerState` snapshots for reconciliation/interpolation
-- [ ] Movement stop is reflected by server-authoritative state, not just local client visuals
+- [x] Server owns final position and movement resolution
+- [x] Clients receive authoritative `PlayerState` snapshots for reconciliation/interpolation
+- [x] Movement stop is reflected by server-authoritative state, not just local client visuals
 
 ### 8. Implement Server-Authoritative Shooting And Combat Resolution
 
@@ -155,11 +155,11 @@ Acceptance:
 ### 9. Expand Regression Coverage From Network Layer To Gameplay Flow
 
 - [ ] Extend [`Assets/Tests/EditMode/Network/MessageManagerTests.cs`](./Assets/Tests/EditMode/Network/MessageManagerTests.cs) only as needed for lane policy regressions
-- [ ] Add tests that cover explicit zero-input movement stop behavior
+- [x] Add tests that cover explicit zero-input movement stop behavior
 - [ ] Add tests for client `ShootInput` send routing
 - [ ] Add tests for `CombatEvent` receive/apply behavior
 - [ ] Add tests for remote `PlayerState` buffering / interpolation decisions where practical
-- [ ] Add tests for server-authoritative movement processing
+- [x] Add tests for server-authoritative movement processing
 - [ ] Add tests for server-authoritative shooting/combat result generation
 - [ ] Add at least one end-to-end fake-transport test that covers `MoveInput -> PlayerState` and `ShootInput -> CombatEvent`
 

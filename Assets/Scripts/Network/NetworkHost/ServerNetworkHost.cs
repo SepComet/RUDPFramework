@@ -1,7 +1,8 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Net;
 using System.Threading.Tasks;
+using Network.Defines;
 using Network.NetworkApplication;
 using Network.NetworkTransport;
 
@@ -12,6 +13,7 @@ namespace Network.NetworkHost
         private readonly ITransport transport;
         private readonly ITransport syncTransport;
         private readonly MessageManager messageManager;
+        private readonly ServerAuthoritativeMovementCoordinator authoritativeMovementCoordinator;
 
         public ServerNetworkHost(
             ITransport transport,
@@ -20,7 +22,8 @@ namespace Network.NetworkHost
             Func<DateTimeOffset> utcNowProvider = null,
             ITransport syncTransport = null,
             IMessageDeliveryPolicyResolver deliveryPolicyResolver = null,
-            SyncSequenceTracker syncSequenceTracker = null)
+            SyncSequenceTracker syncSequenceTracker = null,
+            ServerAuthoritativeMovementConfiguration authoritativeMovement = null)
         {
             this.transport = transport ?? throw new ArgumentNullException(nameof(transport));
             this.syncTransport = syncTransport;
@@ -37,6 +40,11 @@ namespace Network.NetworkHost
                 deliveryPolicyResolver ?? new DefaultMessageDeliveryPolicyResolver(),
                 this.syncTransport,
                 syncSequenceTracker ?? new SyncSequenceTracker());
+            authoritativeMovementCoordinator = new ServerAuthoritativeMovementCoordinator(
+                this,
+                messageManager,
+                authoritativeMovement ?? new ServerAuthoritativeMovementConfiguration());
+            messageManager.RegisterHandler(MessageType.MoveInput, authoritativeMovementCoordinator.HandleMoveInputAsync);
         }
 
         public MessageManager MessageManager => messageManager;
@@ -45,10 +53,11 @@ namespace Network.NetworkHost
 
         public ITransport SyncTransport => syncTransport;
 
-        // Server-side lifecycle entry point: inspect and control per-peer session state here.
         public MultiSessionManager SessionCoordinator { get; }
 
         public IReadOnlyList<ManagedNetworkSession> ManagedSessions => SessionCoordinator.Sessions;
+
+        public IReadOnlyList<ServerAuthoritativeMovementState> AuthoritativeMovementStates => authoritativeMovementCoordinator.States;
 
         public event Action<MultiSessionLifecycleEvent> LifecycleChanged
         {
@@ -77,6 +86,7 @@ namespace Network.NetworkHost
             }
 
             SessionCoordinator.RemoveAllSessions("Transport stopped");
+            authoritativeMovementCoordinator.Clear();
             PublishMetricsSessionSnapshots();
         }
 
@@ -91,9 +101,19 @@ namespace Network.NetworkHost
             PublishMetricsSessionSnapshots();
         }
 
+        public void UpdateAuthoritativeMovement(TimeSpan elapsed)
+        {
+            authoritativeMovementCoordinator.Update(elapsed);
+        }
+
         public bool TryGetSession(IPEndPoint remoteEndPoint, out ManagedNetworkSession session)
         {
             return SessionCoordinator.TryGetSession(remoteEndPoint, out session);
+        }
+
+        public bool TryGetAuthoritativeMovementState(IPEndPoint remoteEndPoint, out ServerAuthoritativeMovementState state)
+        {
+            return authoritativeMovementCoordinator.TryGetState(remoteEndPoint, out state);
         }
 
         public void NotifyLoginStarted(IPEndPoint remoteEndPoint)
@@ -150,6 +170,8 @@ namespace Network.NetworkHost
             {
                 return false;
             }
+
+            authoritativeMovementCoordinator.RemoveState(remoteEndPoint);
 
             RecordMetricsSessionSnapshot(transport, "server-host", session, ConnectionState.Disconnected);
             if (syncTransport != null && !ReferenceEquals(syncTransport, transport))

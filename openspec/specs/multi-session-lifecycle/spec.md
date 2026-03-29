@@ -13,7 +13,7 @@ The shared networking core SHALL provide a multi-session lifecycle coordinator f
 - **THEN** lifecycle changes for one peer do not overwrite or hide the state of the other peer
 
 ### Requirement: Multi-session hosts can observe and evaluate each managed session
-The multi-session lifecycle coordinator SHALL expose per-session lookup or enumeration and MUST evaluate timeout, heartbeat, login, and reconnect rules for each managed session independently using the shared session lifecycle vocabulary.
+The multi-session lifecycle coordinator SHALL expose per-session lookup or enumeration and MUST evaluate timeout, heartbeat, login, reconnect, and authoritative movement tick rules for each managed session independently using the shared session lifecycle vocabulary. Server-side stale-input acceptance and authoritative movement tracking MUST remain scoped to the peer that produced the traffic.
 
 #### Scenario: Timeout affects only one managed session
 - **WHEN** one managed session stops receiving liveness updates while another session continues receiving heartbeat or message activity
@@ -24,6 +24,11 @@ The multi-session lifecycle coordinator SHALL expose per-session lookup or enume
 - **WHEN** server-side code needs to inspect the current connection state of connected peers
 - **THEN** it can look up or enumerate managed sessions through the multi-session coordinator
 - **THEN** each entry exposes the shared session lifecycle state for that specific peer
+
+#### Scenario: Movement tick filtering remains peer-scoped
+- **WHEN** two managed peers send `MoveInput` traffic with different tick progress or ordering
+- **THEN** stale-input acceptance is evaluated independently for each managed peer
+- **THEN** one peer's late or advanced movement input does not overwrite or suppress the other's authoritative movement state
 
 ### Requirement: Session removal is explicit and does not corrupt remaining peers
 The multi-session lifecycle coordinator SHALL support explicit removal or disconnection handling for one managed session without resetting unrelated sessions that remain active.
