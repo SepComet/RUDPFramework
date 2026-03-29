@@ -50,6 +50,36 @@ public static class ClientGameplayInputFlow
             TargetId = targetId ?? string.Empty
         };
     }
+
+    public static void SendShootInput(
+        MessageManager messageManager,
+        string playerId,
+        long tick,
+        Vector3 aimDirection,
+        string targetId = "")
+    {
+        if (messageManager == null)
+        {
+            throw new System.ArgumentNullException(nameof(messageManager));
+        }
+
+        SendShootInput(messageManager, CreateShootInput(playerId, tick, aimDirection, targetId));
+    }
+
+    public static void SendShootInput(MessageManager messageManager, ShootInput message)
+    {
+        if (messageManager == null)
+        {
+            throw new System.ArgumentNullException(nameof(messageManager));
+        }
+
+        if (message == null)
+        {
+            throw new System.ArgumentNullException(nameof(message));
+        }
+
+        messageManager.SendMessage(message, MessageType.ShootInput);
+    }
 }
 
 public class MovementComponent : MonoBehaviour

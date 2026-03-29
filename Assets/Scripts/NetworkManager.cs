@@ -215,12 +215,13 @@ public class NetworkManager : MonoBehaviour
 
     public void SendShootInput(string playerId, Vector3 direction, long tick = 0, string targetId = "")
     {
-        SendShootInput(ClientGameplayInputFlow.CreateShootInput(playerId, tick, direction, targetId));
+        ClientGameplayInputFlow.SendShootInput(_networkRuntime.MessageManager, playerId, tick, direction, targetId);
+        Debug.Log($"PlayerShootSeq: {_sequence++}");
     }
 
     public void SendShootInput(ShootInput message)
     {
-        _networkRuntime.MessageManager.SendMessage(message, MessageType.ShootInput);
+        ClientGameplayInputFlow.SendShootInput(_networkRuntime.MessageManager, message);
         Debug.Log($"PlayerShootSeq: {_sequence++}");
     }
 

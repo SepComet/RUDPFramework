@@ -31,8 +31,8 @@ Still missing for MVP:
 - [ ] Full `PlayerState` field application for rotation / HP / velocity
 - [ ] Remote-player snapshot buffering and interpolation strategy
 - [x] Explicit movement-stop handling via zero-input `MoveInput`
-- [ ] End-to-end gameplay regression coverage
-- [ ] Re-run build/test in an environment with the required .NET runtime installed
+- [x] End-to-end gameplay regression coverage
+- [x] Re-run build/test in an environment with the required .NET runtime installed
 
 ## Checklist
 
@@ -154,33 +154,39 @@ Acceptance:
 
 ### 9. Expand Regression Coverage From Network Layer To Gameplay Flow
 
-- [ ] Extend [`Assets/Tests/EditMode/Network/MessageManagerTests.cs`](./Assets/Tests/EditMode/Network/MessageManagerTests.cs) only as needed for lane policy regressions
+- [x] Extend [`Assets/Tests/EditMode/Network/MessageManagerTests.cs`](./Assets/Tests/EditMode/Network/MessageManagerTests.cs) only as needed for lane policy regressions
 - [x] Add tests that cover explicit zero-input movement stop behavior
-- [ ] Add tests for client `ShootInput` send routing
-- [ ] Add tests for `CombatEvent` receive/apply behavior
-- [ ] Add tests for remote `PlayerState` buffering / interpolation decisions where practical
+- [x] Add tests for client `ShootInput` send routing
+- [x] Add tests for `CombatEvent` receive/apply behavior
+- [x] Add tests for remote `PlayerState` buffering / interpolation decisions where practical
 - [x] Add tests for server-authoritative movement processing
 - [x] Add tests for server-authoritative shooting/combat result generation
-- [ ] Add at least one end-to-end fake-transport test that covers `MoveInput -> PlayerState` and `ShootInput -> CombatEvent`
+- [x] Add at least one end-to-end fake-transport test that covers `MoveInput -> PlayerState` and `ShootInput -> CombatEvent`
 
 Acceptance:
 
-- [ ] MVP gameplay flow is covered beyond transport-only assertions
-- [ ] Both client single-session and server multi-session behaviors remain protected
-- [ ] Regression tests fail if movement/combat authority accidentally drifts back to the client
+- [x] MVP gameplay flow is covered beyond transport-only assertions
+- [x] Both client single-session and server multi-session behaviors remain protected
+- [x] Regression tests fail if movement/combat authority accidentally drifts back to the client
 
 ### 10. Re-Verify Build And Test
 
-- [ ] Install or use an environment that contains the required .NET runtime for this repository
-- [ ] Run `dotnet build Network.EditMode.Tests.csproj -v minimal`
-- [ ] Run `dotnet test Network.EditMode.Tests.csproj --no-build -v minimal`
-- [ ] Record the actual result after the environment issue is resolved
+- [x] Install or use an environment that contains the required .NET runtime for this repository
+- [x] Run `dotnet build Network.EditMode.Tests.csproj -v minimal`
+- [x] Run `dotnet test Network.EditMode.Tests.csproj --no-build -v minimal`
+- [x] Record the actual result after the environment issue is resolved
 
 Acceptance:
 
-- [ ] Build succeeds in a runnable local environment
-- [ ] Edit-mode network tests succeed
-- [ ] New MVP gameplay regression tests succeed
+- [x] Build succeeds in a runnable local environment
+- [x] Edit-mode network tests succeed
+- [x] New MVP gameplay regression tests succeed
+
+Recorded result:
+
+- [x] Verified on 2026-03-29 in a local environment with .NET SDK 10.0.201 installed
+- [x] `dotnet build Network.EditMode.Tests.csproj -v minimal` succeeded with 4 non-fatal MSB3277 warning groups about `System.Net.Http` and `System.Security.Cryptography.Algorithms` assembly-version conflicts in Unity dependencies
+- [x] `dotnet test Network.EditMode.Tests.csproj --no-build -v minimal` succeeded, covering the edit-mode network and MVP gameplay regression suite
 
 ## Recommended Order
 
