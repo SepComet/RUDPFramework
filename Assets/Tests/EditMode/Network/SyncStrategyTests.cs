@@ -96,7 +96,8 @@ namespace Tests.EditMode.Network
             Assert.That(accepted, Is.True);
             Assert.That(buffer.LastAuthoritativeTick, Is.EqualTo(11));
             Assert.That(replayInputs.Count, Is.EqualTo(1));
-            Assert.That(replayInputs[0].Tick, Is.EqualTo(12));
+            Assert.That(replayInputs[0].Input.Tick, Is.EqualTo(12));
+            Assert.That(replayInputs[0].SimulatedDurationSeconds, Is.EqualTo(0f));
             Assert.That(buffer.PendingInputs.Count, Is.EqualTo(1));
         }
 

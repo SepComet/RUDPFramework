@@ -196,6 +196,7 @@ public class MovementComponent : MonoBehaviour
             }
 
             Simulate(_cachedMoveInput);
+            _predictionBuffer.AccumulateLatest(Time.fixedDeltaTime);
         }
         else
         {
@@ -300,11 +301,11 @@ public class MovementComponent : MonoBehaviour
         }
     }
 
-    private void ReplayPendingInputs(IReadOnlyList<MoveInput> replayInputs)
+    private void ReplayPendingInputs(IReadOnlyList<PredictedMoveStep> replayInputs)
     {
         foreach (var replayInput in replayInputs)
         {
-            ApplyTankMovement(replayInput.TurnInput, replayInput.ThrottleInput, _sendInterval);
+            ApplyTankMovement(replayInput.Input.TurnInput, replayInput.Input.ThrottleInput, replayInput.SimulatedDurationSeconds);
         }
 
         if (_isControlled)
