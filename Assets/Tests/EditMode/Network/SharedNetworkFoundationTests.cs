@@ -110,8 +110,8 @@ namespace Tests.EditMode.Network
             {
                 PlayerId = "shared-player",
                 Tick = 33,
-                MoveX = 1f,
-                MoveY = -1f
+                TurnInput = 1f,
+                ThrottleInput = -1f
             };
 
             runtime.MessageManager.SendMessage(message, MessageType.MoveInput);
@@ -161,7 +161,7 @@ namespace Tests.EditMode.Network
             {
                 PlayerId = "shared-player",
                 Tick = 77,
-                MoveX = 1f
+                ThrottleInput = 1f
             };
 
             runtime.MessageManager.SendMessage(moveInput, MessageType.MoveInput);
@@ -191,7 +191,7 @@ namespace Tests.EditMode.Network
             {
                 PlayerId = "server-player",
                 Tick = 88,
-                MoveY = 1f
+                ThrottleInput = 1f
             };
 
             host.MessageManager.SendMessage(moveInput, MessageType.MoveInput);
@@ -215,7 +215,7 @@ namespace Tests.EditMode.Network
             {
                 PlayerId = "fallback-player",
                 Tick = 99,
-                MoveX = -1f
+                TurnInput = -1f
             };
 
             host.MessageManager.SendMessage(moveInput, MessageType.MoveInput);

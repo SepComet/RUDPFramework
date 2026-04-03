@@ -39,8 +39,8 @@ message LogoutRequest {
 message MoveInput {
   string player_id = 1;
   int64 tick = 2;
-  float move_x = 3;
-  float move_y = 4;
+  float turn_input = 3;
+  float throttle_input = 4;
 }
 
 message ShootInput {

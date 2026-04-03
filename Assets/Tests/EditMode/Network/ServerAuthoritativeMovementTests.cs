@@ -33,26 +33,31 @@ namespace Tests.EditMode.Network
 
             using var runtime = ServerRuntimeEntryPoint.StartAsync(configuration).GetAwaiter().GetResult();
 
+            runtime.Host.NotifyLoginStarted(PeerA);
+            runtime.Host.NotifyLoginSucceeded(PeerA, "player-a");
+            runtime.Host.NotifyLoginStarted(PeerB);
+            runtime.Host.NotifyLoginSucceeded(PeerB, "player-b");
+
             createdTransports[9000].EmitReceive(BuildEnvelope(MessageType.MoveInput, new MoveInput
             {
                 PlayerId = "player-a",
                 Tick = 10,
-                MoveX = 1f,
-                MoveY = 0f
+                TurnInput = 0f,
+                ThrottleInput = 1f
             }), PeerA);
             createdTransports[9000].EmitReceive(BuildEnvelope(MessageType.MoveInput, new MoveInput
             {
                 PlayerId = "player-a",
                 Tick = 8,
-                MoveX = 0f,
-                MoveY = 1f
+                TurnInput = 1f,
+                ThrottleInput = 0f
             }), PeerA);
             createdTransports[9000].EmitReceive(BuildEnvelope(MessageType.MoveInput, new MoveInput
             {
                 PlayerId = "player-b",
                 Tick = 3,
-                MoveX = 0f,
-                MoveY = 1f
+                TurnInput = 0f,
+                ThrottleInput = -1f
             }), PeerB);
 
             runtime.DrainPendingMessagesAsync().GetAwaiter().GetResult();
@@ -66,8 +71,8 @@ namespace Tests.EditMode.Network
             Assert.That(stateA.PositionZ, Is.EqualTo(0f).Within(0.0001f));
             Assert.That(stateB.PlayerId, Is.EqualTo("player-b"));
             Assert.That(stateB.LastAcceptedMoveTick, Is.EqualTo(3));
-            Assert.That(stateB.PositionX, Is.EqualTo(0f).Within(0.0001f));
-            Assert.That(stateB.PositionZ, Is.EqualTo(0.2f).Within(0.0001f));
+            Assert.That(stateB.PositionX, Is.EqualTo(-0.2f).Within(0.0001f));
+            Assert.That(stateB.PositionZ, Is.EqualTo(0f).Within(0.0001f));
             Assert.That(createdTransports[9000].BroadcastMessages.Count, Is.EqualTo(2));
         }
 
@@ -89,12 +94,15 @@ namespace Tests.EditMode.Network
 
             using var runtime = ServerRuntimeEntryPoint.StartAsync(configuration).GetAwaiter().GetResult();
 
+            runtime.Host.NotifyLoginStarted(PeerA);
+            runtime.Host.NotifyLoginSucceeded(PeerA, "player-a");
+
             createdTransports[9001].EmitReceive(BuildEnvelope(MessageType.MoveInput, new MoveInput
             {
                 PlayerId = "player-a",
                 Tick = 1,
-                MoveX = 1f,
-                MoveY = 0f
+                TurnInput = 0f,
+                ThrottleInput = 1f
             }), PeerA);
 
             runtime.DrainPendingMessagesAsync().GetAwaiter().GetResult();
@@ -118,8 +126,8 @@ namespace Tests.EditMode.Network
             {
                 PlayerId = "player-a",
                 Tick = 2,
-                MoveX = 0f,
-                MoveY = 0f
+                TurnInput = 0f,
+                ThrottleInput = 0f
             }), PeerA);
 
             runtime.DrainPendingMessagesAsync().GetAwaiter().GetResult();
@@ -164,7 +172,7 @@ namespace Tests.EditMode.Network
             }), PeerA);
 
             runtime.Host.NotifyLoginStarted(PeerA);
-            runtime.Host.NotifyLoginSucceeded(PeerA);
+            runtime.Host.NotifyLoginSucceeded(PeerA, "player-a");
             runtime.UpdateAuthoritativeMovement(TimeSpan.FromMilliseconds(50));
 
             Assert.That(runtime.TryGetAuthoritativeMovementState(PeerA, out var state), Is.True);
@@ -202,12 +210,15 @@ namespace Tests.EditMode.Network
 
             using var runtime = ServerRuntimeEntryPoint.StartAsync(configuration).GetAwaiter().GetResult();
 
+            runtime.Host.NotifyLoginStarted(PeerA);
+            runtime.Host.NotifyLoginSucceeded(PeerA, "player-a");
+
             createdTransports[9000].EmitReceive(BuildEnvelope(MessageType.MoveInput, new MoveInput
             {
                 PlayerId = "player-a",
                 Tick = 5,
-                MoveX = 0f,
-                MoveY = -1f
+                TurnInput = 0f,
+                ThrottleInput = -1f
             }), PeerA);
 
             runtime.DrainPendingMessagesAsync().GetAwaiter().GetResult();
@@ -217,9 +228,9 @@ namespace Tests.EditMode.Network
 
             var broadcast = ParsePlayerState(createdTransports[9000].BroadcastMessages[0]);
             Assert.That(broadcast.Tick, Is.EqualTo(1));
-            Assert.That(broadcast.Position.X, Is.EqualTo(0f).Within(0.0001f));
-            Assert.That(broadcast.Position.Z, Is.EqualTo(-0.3f).Within(0.0001f));
-            Assert.That(broadcast.Velocity.Z, Is.EqualTo(-6f).Within(0.0001f));
+            Assert.That(broadcast.Position.X, Is.EqualTo(-0.3f).Within(0.0001f));
+            Assert.That(broadcast.Position.Z, Is.EqualTo(0f).Within(0.0001f));
+            Assert.That(broadcast.Velocity.X, Is.EqualTo(-6f).Within(0.0001f));
         }
 
         private static FakeTransport CreateTransport(IDictionary<int, FakeTransport> createdTransports, int port)

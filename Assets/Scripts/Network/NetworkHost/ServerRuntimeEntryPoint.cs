@@ -25,7 +25,8 @@ namespace Network.NetworkHost
                 configuration.SyncSequenceTracker,
                 configuration.TransportFactory,
                 configuration.AuthoritativeMovement,
-                configuration.AuthoritativeCombat);
+                configuration.AuthoritativeCombat,
+                configuration.AuthoritativeMovementWorldValidator);
 
             try
             {

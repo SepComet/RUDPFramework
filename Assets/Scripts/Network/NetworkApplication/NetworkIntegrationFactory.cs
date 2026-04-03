@@ -60,7 +60,8 @@ namespace Network.NetworkApplication
             SyncSequenceTracker syncSequenceTracker = null,
             Func<int, ITransport> transportFactory = null,
             ServerAuthoritativeMovementConfiguration authoritativeMovement = null,
-            ServerAuthoritativeCombatConfiguration authoritativeCombat = null)
+            ServerAuthoritativeCombatConfiguration authoritativeCombat = null,
+            IAuthoritativeMovementWorldValidator authoritativeMovementWorldValidator = null)
         {
             ValidateDualPortConfiguration(reliablePort, syncPort);
 
@@ -86,7 +87,8 @@ namespace Network.NetworkApplication
                 deliveryPolicyResolver,
                 syncSequenceTracker,
                 authoritativeMovement,
-                authoritativeCombat);
+                authoritativeCombat,
+                authoritativeMovementWorldValidator ?? PermissiveAuthoritativeMovementWorldValidator.Instance);
         }
 
         public static Task<ServerRuntimeHandle> StartServerRuntimeAsync(ServerRuntimeConfiguration configuration)

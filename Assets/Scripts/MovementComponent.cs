@@ -23,8 +23,8 @@ public static class ClientGameplayInputFlow
         {
             PlayerId = playerId,
             Tick = tick,
-            MoveX = input.x,
-            MoveY = input.z
+            TurnInput = -input.x,
+            ThrottleInput = input.z
         };
         return true;
     }
@@ -104,6 +104,8 @@ public class MovementComponent : MonoBehaviour
 {
     [SerializeField] private float _sendInterval = 0.05f;
     private Player _master;
+    private const float TurnSpeedDegreesPerSecond = 180f;
+    private const float UnityYawOffsetDegrees = 90f;
     private int _speed = 2;
     [SerializeField] private Rigidbody _rigid;
     private float _lastSendTime = 0;
@@ -131,9 +133,10 @@ public class MovementComponent : MonoBehaviour
         _isControlled = isControlled;
         _speed = speed;
         _startTickOffset = serverTick;
-        _rigid.interpolation = RigidbodyInterpolation.Interpolate;
+        _rigid.interpolation = isControlled ? RigidbodyInterpolation.None : RigidbodyInterpolation.Interpolate;
         _rigid.isKinematic = !isControlled;
         _rigid.velocity = Vector3.zero;
+        _rigid.angularVelocity = Vector3.zero;
         if (serverTick != 0 && _isControlled && MainUI.Instance != null) MainUI.Instance.OnStartTickOffsetChanged(serverTick);
     }
 
@@ -145,7 +148,6 @@ public class MovementComponent : MonoBehaviour
             var hasMovement = ClientGameplayInputFlow.HasPlanarInput(_cachedMoveInput);
             if (hasMovement)
             {
-                _lastAimDirection = _cachedMoveInput;
                 _stopMessagePending = false;
             }
             else if (_wasMovingLastFrame)
@@ -215,9 +217,10 @@ public class MovementComponent : MonoBehaviour
         }
 
         _serverPosition = snapshot.Position;
-        _rigid.position = Vector3.Lerp(_rigid.position, _serverPosition, _lerpRate);
-        _rigid.rotation = Quaternion.Slerp(_rigid.rotation, snapshot.RotationQuaternion, _lerpRate);
+        _rigid.position = _serverPosition;
+        _rigid.rotation = snapshot.RotationQuaternion;
         _rigid.velocity = snapshot.Velocity;
+        _rigid.angularVelocity = Vector3.zero;
         ReplayPendingInputs(replayInputs);
     }
 
@@ -240,19 +243,19 @@ public class MovementComponent : MonoBehaviour
 
     private Vector3 ResolveAimDirection()
     {
-        if (ClientGameplayInputFlow.HasPlanarInput(_lastAimDirection))
+        var planarForward = Vector3.ProjectOnPlane(_rigid.transform.forward, Vector3.up);
+        if (ClientGameplayInputFlow.HasPlanarInput(planarForward))
         {
-            return _lastAimDirection;
+            _lastAimDirection = planarForward;
+            return planarForward;
         }
 
-        var forward = _master != null ? _master.transform.forward : transform.forward;
-        var planarForward = new Vector3(forward.x, 0f, forward.z);
-        return ClientGameplayInputFlow.HasPlanarInput(planarForward) ? planarForward : Vector3.forward;
+        return ClientGameplayInputFlow.HasPlanarInput(_lastAimDirection) ? _lastAimDirection : ResolveHeadingForward(UnityYawToHeading(_rigid.rotation.eulerAngles.y));
     }
 
     private void Simulate(Vector3 input)
     {
-        _rigid.velocity = _speed * input;
+        ApplyTankMovement(-input.x, input.z, Time.fixedDeltaTime);
         if (_isControlled)
         {
             if (MainUI.Instance != null)
@@ -301,7 +304,7 @@ public class MovementComponent : MonoBehaviour
     {
         foreach (var replayInput in replayInputs)
         {
-            _rigid.position += _speed * new Vector3(replayInput.MoveX, 0f, replayInput.MoveY) * _sendInterval;
+            ApplyTankMovement(replayInput.TurnInput, replayInput.ThrottleInput, _sendInterval);
         }
 
         if (_isControlled)
@@ -311,5 +314,51 @@ public class MovementComponent : MonoBehaviour
                 MainUI.Instance.OnClientPosChanged(_rigid.position);
             }
         }
+    }
+
+    private void ApplyTankMovement(float turnInput, float throttleInput, float deltaTime)
+    {
+        if (deltaTime <= 0f)
+        {
+            _rigid.velocity = Vector3.zero;
+            return;
+        }
+
+        var clampedTurnInput = Mathf.Clamp(turnInput, -1f, 1f);
+        var clampedThrottleInput = Mathf.Clamp(throttleInput, -1f, 1f);
+        var heading = NormalizeDegrees(UnityYawToHeading(_rigid.rotation.eulerAngles.y) + (clampedTurnInput * TurnSpeedDegreesPerSecond * deltaTime));
+        _rigid.rotation = Quaternion.Euler(0f, HeadingToUnityYaw(heading), 0f);
+
+        var forward = ResolveHeadingForward(heading);
+        var velocity = forward * (clampedThrottleInput * _speed);
+        _rigid.velocity = velocity;
+        _rigid.position += velocity * deltaTime;
+    }
+
+    private static Vector3 ResolveHeadingForward(float headingDegrees)
+    {
+        var rotationRadians = headingDegrees * Mathf.Deg2Rad;
+        return new Vector3(Mathf.Cos(rotationRadians), 0f, Mathf.Sin(rotationRadians));
+    }
+
+    private static float HeadingToUnityYaw(float headingDegrees)
+    {
+        return NormalizeDegrees(UnityYawOffsetDegrees - headingDegrees);
+    }
+
+    private static float UnityYawToHeading(float unityYawDegrees)
+    {
+        return NormalizeDegrees(UnityYawOffsetDegrees - unityYawDegrees);
+    }
+
+    private static float NormalizeDegrees(float degrees)
+    {
+        var normalized = degrees % 360f;
+        if (normalized < 0f)
+        {
+            normalized += 360f;
+        }
+
+        return normalized;
     }
 }

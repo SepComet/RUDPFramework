@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using System.Threading.Tasks;
 using Network.Defines;
@@ -17,6 +18,8 @@ namespace Network.NetworkHost
         private readonly ServerAuthoritativeCombatCoordinator authoritativeCombatCoordinator;
         private readonly object playerIdentityGate = new();
         private readonly Dictionary<string, string> playerIdsByPeer = new();
+        private readonly Dictionary<string, IPEndPoint> canonicalPeersByPlayerId = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, HashSet<string>> peerKeysByPlayerId = new(StringComparer.Ordinal);
 
         public ServerNetworkHost(
             ITransport transport,
@@ -27,7 +30,8 @@ namespace Network.NetworkHost
             IMessageDeliveryPolicyResolver deliveryPolicyResolver = null,
             SyncSequenceTracker syncSequenceTracker = null,
             ServerAuthoritativeMovementConfiguration authoritativeMovement = null,
-            ServerAuthoritativeCombatConfiguration authoritativeCombat = null)
+            ServerAuthoritativeCombatConfiguration authoritativeCombat = null,
+            IAuthoritativeMovementWorldValidator authoritativeMovementWorldValidator = null)
         {
             this.transport = transport ?? throw new ArgumentNullException(nameof(transport));
             this.syncTransport = syncTransport;
@@ -44,11 +48,14 @@ namespace Network.NetworkHost
                 deliveryPolicyResolver ?? new DefaultMessageDeliveryPolicyResolver(),
                 this.syncTransport,
                 syncSequenceTracker ?? new SyncSequenceTracker());
+            var resolvedWorldValidator = authoritativeMovementWorldValidator ?? PermissiveAuthoritativeMovementWorldValidator.Instance;
             authoritativeMovementCoordinator = new ServerAuthoritativeMovementCoordinator(
                 this,
                 messageManager,
-                authoritativeMovement ?? new ServerAuthoritativeMovementConfiguration());
+                authoritativeMovement ?? new ServerAuthoritativeMovementConfiguration(),
+                resolvedWorldValidator);
             authoritativeCombatCoordinator = new ServerAuthoritativeCombatCoordinator(
+                this,
                 messageManager,
                 authoritativeMovementCoordinator,
                 authoritativeCombat ?? new ServerAuthoritativeCombatConfiguration());
@@ -102,6 +109,8 @@ namespace Network.NetworkHost
             lock (playerIdentityGate)
             {
                 playerIdsByPeer.Clear();
+                canonicalPeersByPlayerId.Clear();
+                peerKeysByPlayerId.Clear();
             }
             PublishMetricsSessionSnapshots();
         }
@@ -137,6 +146,117 @@ namespace Network.NetworkHost
             return authoritativeCombatCoordinator.TryGetState(remoteEndPoint, out state);
         }
 
+        public bool TryGetAcceptedPlayerId(IPEndPoint remoteEndPoint, out string playerId)
+        {
+            return TryGetKnownPlayerId(remoteEndPoint, out playerId);
+        }
+
+        public bool IsAcceptedPlayer(IPEndPoint remoteEndPoint, string playerId)
+        {
+            return !string.IsNullOrWhiteSpace(playerId) &&
+                TryGetKnownPlayerId(remoteEndPoint, out var acceptedPlayerId) &&
+                string.Equals(acceptedPlayerId, playerId, StringComparison.Ordinal);
+        }
+
+        public bool TryResolveAcceptedPeer(IPEndPoint remoteEndPoint, string playerId, out IPEndPoint acceptedPeer)
+        {
+            acceptedPeer = null;
+            if (remoteEndPoint == null || string.IsNullOrWhiteSpace(playerId))
+            {
+                return false;
+            }
+
+            var normalizedRemoteEndPoint = Normalize(remoteEndPoint);
+            var remoteKey = normalizedRemoteEndPoint.ToString();
+
+            lock (playerIdentityGate)
+            {
+                if (playerIdsByPeer.TryGetValue(remoteKey, out var mappedPlayerId))
+                {
+                    if (!string.Equals(mappedPlayerId, playerId, StringComparison.Ordinal))
+                    {
+                        return false;
+                    }
+
+                    if (!canonicalPeersByPlayerId.TryGetValue(playerId, out acceptedPeer))
+                    {
+                        acceptedPeer = normalizedRemoteEndPoint;
+                    }
+
+                    return true;
+                }
+
+                if (!canonicalPeersByPlayerId.TryGetValue(playerId, out acceptedPeer))
+                {
+                    return false;
+                }
+
+                playerIdsByPeer[remoteKey] = playerId;
+                if (!peerKeysByPlayerId.TryGetValue(playerId, out var peerKeys))
+                {
+                    peerKeys = new HashSet<string>(StringComparer.Ordinal);
+                    peerKeysByPlayerId[playerId] = peerKeys;
+                }
+
+                peerKeys.Add(remoteKey);
+                return true;
+            }
+        }
+
+        public bool IsPlayerIdInUse(string playerId)
+        {
+            if (string.IsNullOrWhiteSpace(playerId))
+            {
+                return false;
+            }
+
+            lock (playerIdentityGate)
+            {
+                foreach (var acceptedPlayerId in playerIdsByPeer.Values)
+                {
+                    if (string.Equals(acceptedPlayerId, playerId, StringComparison.Ordinal))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            foreach (var state in authoritativeMovementCoordinator.States)
+            {
+                if (string.Equals(state.PlayerId, playerId, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+
+            foreach (var state in authoritativeCombatCoordinator.States)
+            {
+                if (string.Equals(state.PlayerId, playerId, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        public bool TryRefreshAcceptedGameplayActivity(IPEndPoint remoteEndPoint, string playerId)
+        {
+            if (!TryResolveAcceptedPeer(remoteEndPoint, playerId, out var acceptedPeer))
+            {
+                return false;
+            }
+
+            if (!TryGetSession(acceptedPeer, out var session) ||
+                session.SessionManager.State != ConnectionState.LoggedIn)
+            {
+                return false;
+            }
+
+            NotifyInboundActivity(acceptedPeer);
+            return true;
+        }
+
         public void NotifyLoginStarted(IPEndPoint remoteEndPoint)
         {
             SessionCoordinator.NotifyLoginStarted(remoteEndPoint);
@@ -159,7 +279,7 @@ namespace Network.NetworkHost
         public void NotifyLoginFailed(IPEndPoint remoteEndPoint, string reason = null)
         {
             SessionCoordinator.NotifyLoginFailed(remoteEndPoint, reason);
-            ForgetPlayerId(remoteEndPoint);
+            ForgetPeerIdentity(remoteEndPoint);
             PublishMetricsSessionSnapshot(remoteEndPoint);
         }
 
@@ -189,20 +309,34 @@ namespace Network.NetworkHost
 
         public bool RemoveSession(IPEndPoint remoteEndPoint, string reason = null)
         {
-            if (!SessionCoordinator.TryGetSession(remoteEndPoint, out var session))
+            if (!TryGetKnownPlayerId(remoteEndPoint, out var playerId) ||
+                !TryResolveAcceptedPeer(remoteEndPoint, playerId, out var acceptedPeer) ||
+                !SessionCoordinator.TryGetSession(acceptedPeer, out var session))
             {
                 return false;
             }
 
-            var removed = SessionCoordinator.RemoveSession(remoteEndPoint, reason);
+            var removed = SessionCoordinator.RemoveSession(acceptedPeer, reason);
             if (!removed)
             {
                 return false;
             }
 
-            authoritativeMovementCoordinator.RemoveState(remoteEndPoint);
-            authoritativeCombatCoordinator.RemoveState(remoteEndPoint);
-            ForgetPlayerId(remoteEndPoint);
+            authoritativeMovementCoordinator.RemoveState(acceptedPeer);
+            authoritativeCombatCoordinator.RemoveState(acceptedPeer);
+
+            var knownPeerEndpoints = GetKnownPeerEndpointsForPlayerId(playerId);
+            ForgetPlayerId(playerId);
+
+            foreach (var peerEndPoint in knownPeerEndpoints)
+            {
+                SessionCoordinator.RemoveSession(peerEndPoint, reason);
+                RemoveTransportPeerSession(transport, peerEndPoint);
+                if (syncTransport != null && !ReferenceEquals(syncTransport, transport))
+                {
+                    RemoveTransportPeerSession(syncTransport, peerEndPoint);
+                }
+            }
 
             RecordMetricsSessionSnapshot(transport, "server-host", session, ConnectionState.Disconnected);
             if (syncTransport != null && !ReferenceEquals(syncTransport, transport))
@@ -216,8 +350,15 @@ namespace Network.NetworkHost
         private void HandleTransportReceive(byte[] data, IPEndPoint sender)
         {
             SessionCoordinator.ObserveTransportActivity(sender);
-            ObservePlayerIdentity(data, sender);
             PublishMetricsSessionSnapshot(sender);
+        }
+
+        private static void RemoveTransportPeerSession(ITransport transport, IPEndPoint remoteEndPoint)
+        {
+            if (transport is IPeerSessionTransport peerSessionTransport)
+            {
+                peerSessionTransport.RemovePeerSession(remoteEndPoint);
+            }
         }
 
         private void BootstrapAuthoritativeMovementState(IPEndPoint remoteEndPoint)
@@ -230,41 +371,6 @@ namespace Network.NetworkHost
             authoritativeMovementCoordinator.EnsureState(remoteEndPoint, playerId, out _);
         }
 
-        private void ObservePlayerIdentity(byte[] data, IPEndPoint sender)
-        {
-            if (data == null || sender == null)
-            {
-                return;
-            }
-
-            Envelope envelope;
-            try
-            {
-                envelope = Envelope.Parser.ParseFrom(data);
-            }
-            catch
-            {
-                return;
-            }
-
-            if ((MessageType)envelope.Type != MessageType.LoginRequest)
-            {
-                return;
-            }
-
-            LoginRequest request;
-            try
-            {
-                request = LoginRequest.Parser.ParseFrom(envelope.Payload);
-            }
-            catch
-            {
-                return;
-            }
-
-            RememberPlayerId(sender, request.PlayerId);
-        }
-
         private void RememberPlayerId(IPEndPoint remoteEndPoint, string playerId)
         {
             if (remoteEndPoint == null || string.IsNullOrWhiteSpace(playerId))
@@ -272,10 +378,19 @@ namespace Network.NetworkHost
                 return;
             }
 
-            var key = Normalize(remoteEndPoint).ToString();
+            var normalizedRemoteEndPoint = Normalize(remoteEndPoint);
+            var key = normalizedRemoteEndPoint.ToString();
             lock (playerIdentityGate)
             {
                 playerIdsByPeer[key] = playerId;
+                canonicalPeersByPlayerId[playerId] = normalizedRemoteEndPoint;
+                if (!peerKeysByPlayerId.TryGetValue(playerId, out var peerKeys))
+                {
+                    peerKeys = new HashSet<string>(StringComparer.Ordinal);
+                    peerKeysByPlayerId[playerId] = peerKeys;
+                }
+
+                peerKeys.Add(key);
             }
         }
 
@@ -294,7 +409,51 @@ namespace Network.NetworkHost
             }
         }
 
-        private void ForgetPlayerId(IPEndPoint remoteEndPoint)
+        private IReadOnlyList<IPEndPoint> GetKnownPeerEndpointsForPlayerId(string playerId)
+        {
+            if (string.IsNullOrWhiteSpace(playerId))
+            {
+                return Array.Empty<IPEndPoint>();
+            }
+
+            lock (playerIdentityGate)
+            {
+                if (!peerKeysByPlayerId.TryGetValue(playerId, out var peerKeys))
+                {
+                    return Array.Empty<IPEndPoint>();
+                }
+
+                return peerKeys
+                    .Select(ParseEndPoint)
+                    .Where(static endpoint => endpoint != null)
+                    .ToArray();
+            }
+        }
+
+        private void ForgetPlayerId(string playerId)
+        {
+            if (string.IsNullOrWhiteSpace(playerId))
+            {
+                return;
+            }
+
+            lock (playerIdentityGate)
+            {
+                if (peerKeysByPlayerId.TryGetValue(playerId, out var peerKeys))
+                {
+                    foreach (var peerKey in peerKeys)
+                    {
+                        playerIdsByPeer.Remove(peerKey);
+                    }
+
+                    peerKeysByPlayerId.Remove(playerId);
+                }
+
+                canonicalPeersByPlayerId.Remove(playerId);
+            }
+        }
+
+        private void ForgetPeerIdentity(IPEndPoint remoteEndPoint)
         {
             if (remoteEndPoint == null)
             {
@@ -304,8 +463,47 @@ namespace Network.NetworkHost
             var key = Normalize(remoteEndPoint).ToString();
             lock (playerIdentityGate)
             {
+                if (!playerIdsByPeer.TryGetValue(key, out var playerId))
+                {
+                    return;
+                }
+
                 playerIdsByPeer.Remove(key);
+                if (peerKeysByPlayerId.TryGetValue(playerId, out var peerKeys))
+                {
+                    peerKeys.Remove(key);
+                    if (peerKeys.Count == 0)
+                    {
+                        peerKeysByPlayerId.Remove(playerId);
+                        canonicalPeersByPlayerId.Remove(playerId);
+                    }
+                }
             }
+        }
+
+        private static IPEndPoint ParseEndPoint(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return null;
+            }
+
+            var lastColonIndex = value.LastIndexOf(':');
+            if (lastColonIndex <= 0 || lastColonIndex >= value.Length - 1)
+            {
+                return null;
+            }
+
+            var addressText = value.Substring(0, lastColonIndex);
+            if (addressText.Length > 1 && addressText[0] == '[' && addressText[addressText.Length - 1] == ']')
+            {
+                addressText = addressText.Substring(1, addressText.Length - 2);
+            }
+
+            return IPAddress.TryParse(addressText, out var address) &&
+                int.TryParse(value.Substring(lastColonIndex + 1), out var port)
+                ? new IPEndPoint(address, port)
+                : null;
         }
 
         private static IPEndPoint Normalize(IPEndPoint remoteEndPoint)

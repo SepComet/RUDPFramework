@@ -11,16 +11,19 @@ namespace Network.NetworkHost
     internal sealed class ServerAuthoritativeCombatCoordinator
     {
         private readonly object gate = new();
+        private readonly ServerNetworkHost host;
         private readonly MessageManager messageManager;
         private readonly ServerAuthoritativeMovementCoordinator movementCoordinator;
         private readonly Dictionary<string, ServerAuthoritativeCombatState> statesByPeer = new();
         private readonly ServerAuthoritativeCombatConfiguration configuration;
 
         public ServerAuthoritativeCombatCoordinator(
+            ServerNetworkHost host,
             MessageManager messageManager,
             ServerAuthoritativeMovementCoordinator movementCoordinator,
             ServerAuthoritativeCombatConfiguration configuration)
         {
+            this.host = host ?? throw new ArgumentNullException(nameof(host));
             this.messageManager = messageManager ?? throw new ArgumentNullException(nameof(messageManager));
             this.movementCoordinator = movementCoordinator ?? throw new ArgumentNullException(nameof(movementCoordinator));
             this.configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
@@ -56,13 +59,13 @@ namespace Network.NetworkHost
                 return Task.CompletedTask;
             }
 
-            if (!TryValidateAcceptedShot(input, sender, out var attackerState, out var targetState))
+            if (!TryValidateAcceptedShot(input, sender, out var acceptedPeer, out var attackerState, out var targetState))
             {
                 BroadcastRejectedShot(input);
                 return Task.CompletedTask;
             }
 
-            movementCoordinator.TryUpdateState(sender, state =>
+            movementCoordinator.TryUpdateState(acceptedPeer, state =>
             {
                 state.LastAcceptedShootTick = input.Tick;
             }, out attackerState);
@@ -85,6 +88,7 @@ namespace Network.NetworkHost
                 Z = targetState.PositionZ
             };
 
+            // Keep the coordinator as the only gameplay-relevant authoritative combat-result emitter.
             messageManager.BroadcastMessage(new CombatEvent
             {
                 Tick = input.Tick,
@@ -157,16 +161,19 @@ namespace Network.NetworkHost
         private bool TryValidateAcceptedShot(
             ShootInput input,
             IPEndPoint sender,
+            out IPEndPoint acceptedPeer,
             out ServerAuthoritativeMovementState attackerState,
             out ServerAuthoritativeMovementState targetState)
         {
+            acceptedPeer = null;
             attackerState = null;
             targetState = null;
 
             if (input == null ||
                 string.IsNullOrWhiteSpace(input.PlayerId) ||
                 !IsFinite(input.DirX) ||
-                !IsFinite(input.DirY))
+                !IsFinite(input.DirY) ||
+                !host.TryResolveAcceptedPeer(sender, input.PlayerId, out acceptedPeer))
             {
                 return false;
             }
@@ -177,8 +184,8 @@ namespace Network.NetworkHost
                 return false;
             }
 
-            if (!movementCoordinator.TryGetState(sender, out attackerState) &&
-                !movementCoordinator.EnsureState(sender, input.PlayerId, out attackerState))
+            if (!movementCoordinator.TryGetState(acceptedPeer, out attackerState) &&
+                !movementCoordinator.EnsureState(acceptedPeer, input.PlayerId, out attackerState))
             {
                 return false;
             }
@@ -191,7 +198,12 @@ namespace Network.NetworkHost
                 return false;
             }
 
-            return TryResolveTargetState(input, attackerState, out targetState);
+            if (!TryResolveTargetState(input, attackerState, out targetState))
+            {
+                return false;
+            }
+
+            return host.TryRefreshAcceptedGameplayActivity(sender, input.PlayerId);
         }
 
         private bool TryResolveTargetState(

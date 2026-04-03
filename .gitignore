@@ -83,3 +83,6 @@ crashlytics-build.properties
 /.dotnet
 /.dotnet-home
 
+
+EditMode-err.txt
+

@@ -1,11 +1,12 @@
-﻿using System;
+using System;
 
 namespace Network.NetworkApplication
 {
     public sealed class SessionManager
     {
         private readonly Func<DateTimeOffset> utcNowProvider;
-        private DateTimeOffset? lastLivenessUtc;
+        private DateTimeOffset? lastAcceptedLivenessUtc;
+        private DateTimeOffset? lastTransportActivityUtc;
         private DateTimeOffset? lastHeartbeatSentUtc;
         private DateTimeOffset? nextReconnectAtUtc;
 
@@ -24,7 +25,9 @@ namespace Network.NetworkApplication
 
         public SessionReconnectPolicy ReconnectPolicy { get; }
 
-        public DateTimeOffset? LastLivenessUtc => lastLivenessUtc;
+        public DateTimeOffset? LastLivenessUtc => lastAcceptedLivenessUtc;
+
+        public DateTimeOffset? LastTransportActivityUtc => lastTransportActivityUtc;
 
         public DateTimeOffset? LastHeartbeatSentUtc => lastHeartbeatSentUtc;
 
@@ -70,11 +73,16 @@ namespace Network.NetworkApplication
         public void NotifyTransportConnected()
         {
             var now = utcNowProvider();
-            lastLivenessUtc = now;
+            lastTransportActivityUtc = now;
             lastHeartbeatSentUtc = null;
             nextReconnectAtUtc = null;
             LastFailureReason = null;
             TransitionTo(ConnectionState.TransportConnected, SessionEventKind.TransportConnected, now);
+        }
+
+        public void NotifyTransportActivity()
+        {
+            lastTransportActivityUtc = utcNowProvider();
         }
 
         public void NotifyLoginStarted()
@@ -85,7 +93,8 @@ namespace Network.NetworkApplication
         public void NotifyLoginSucceeded()
         {
             var now = utcNowProvider();
-            lastLivenessUtc = now;
+            lastTransportActivityUtc = now;
+            lastAcceptedLivenessUtc = now;
             LastFailureReason = null;
             TransitionTo(ConnectionState.LoggedIn, SessionEventKind.LoginSucceeded, now);
         }
@@ -105,7 +114,8 @@ namespace Network.NetworkApplication
         public void NotifyHeartbeatReceived()
         {
             var now = utcNowProvider();
-            lastLivenessUtc = now;
+            lastTransportActivityUtc = now;
+            lastAcceptedLivenessUtc = now;
             if (lastHeartbeatSentUtc.HasValue)
             {
                 LastRoundTripTime = now - lastHeartbeatSentUtc.Value;
@@ -116,7 +126,9 @@ namespace Network.NetworkApplication
 
         public void NotifyInboundActivity()
         {
-            lastLivenessUtc = utcNowProvider();
+            var now = utcNowProvider();
+            lastTransportActivityUtc = now;
+            lastAcceptedLivenessUtc = now;
         }
 
         public void NotifyTransportDisconnected(string reason = null)
@@ -152,17 +164,18 @@ namespace Network.NetworkApplication
 
         private bool ShouldTimeout(DateTimeOffset now)
         {
-            if (State != ConnectionState.TransportConnected && State != ConnectionState.LoginPending && State != ConnectionState.LoggedIn)
+            switch (State)
             {
-                return false;
+                case ConnectionState.TransportConnected:
+                case ConnectionState.LoginPending:
+                    return lastTransportActivityUtc.HasValue &&
+                        now - lastTransportActivityUtc.Value >= ReconnectPolicy.HeartbeatTimeout;
+                case ConnectionState.LoggedIn:
+                    return lastAcceptedLivenessUtc.HasValue &&
+                        now - lastAcceptedLivenessUtc.Value >= ReconnectPolicy.HeartbeatTimeout;
+                default:
+                    return false;
             }
-
-            if (!lastLivenessUtc.HasValue)
-            {
-                return false;
-            }
-
-            return now - lastLivenessUtc.Value >= ReconnectPolicy.HeartbeatTimeout;
         }
 
         private void TransitionTo(

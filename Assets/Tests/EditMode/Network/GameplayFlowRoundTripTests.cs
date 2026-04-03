@@ -49,6 +49,11 @@ namespace Tests.EditMode.Network
             clientRuntime.StartAsync().GetAwaiter().GetResult();
             using var serverRuntime = ServerRuntimeEntryPoint.StartAsync(configuration).GetAwaiter().GetResult();
 
+            serverRuntime.Host.NotifyLoginStarted(ClientPeer);
+            serverRuntime.Host.NotifyLoginSucceeded(ClientPeer, "player-a");
+            serverRuntime.Host.NotifyLoginStarted(RemotePeer);
+            serverRuntime.Host.NotifyLoginSucceeded(RemotePeer, "player-b");
+
             serverTransports[9001].EmitReceive(
                 GameplayFlowTestSupport.BuildEnvelope(
                     MessageType.MoveInput,
@@ -56,8 +61,8 @@ namespace Tests.EditMode.Network
                     {
                         PlayerId = "player-b",
                         Tick = 1,
-                        MoveX = 0f,
-                        MoveY = 0f
+                        TurnInput = 0f,
+                        ThrottleInput = 0f
                     }),
                 RemotePeer);
             serverRuntime.DrainPendingMessagesAsync().GetAwaiter().GetResult();
@@ -69,8 +74,8 @@ namespace Tests.EditMode.Network
                 {
                     PlayerId = "player-a",
                     Tick = 1,
-                    MoveX = 1f,
-                    MoveY = 0f
+                    TurnInput = 0f,
+                    ThrottleInput = 1f
                 },
                 MessageType.MoveInput);
             ClientGameplayInputFlow.SendShootInput(
@@ -162,9 +167,9 @@ namespace Tests.EditMode.Network
                 RemotePeer);
 
             serverRuntime.Host.NotifyLoginStarted(ClientPeer);
-            serverRuntime.Host.NotifyLoginSucceeded(ClientPeer);
+            serverRuntime.Host.NotifyLoginSucceeded(ClientPeer, "player-a");
             serverRuntime.Host.NotifyLoginStarted(RemotePeer);
-            serverRuntime.Host.NotifyLoginSucceeded(RemotePeer);
+            serverRuntime.Host.NotifyLoginSucceeded(RemotePeer, "player-b");
             serverRuntime.UpdateAuthoritativeMovement(TimeSpan.FromMilliseconds(50));
 
             TransferBroadcastMessages(serverTransports[9001], clientSyncTransport, ServerSender);
@@ -186,8 +191,8 @@ namespace Tests.EditMode.Network
                     {
                         PlayerId = "player-b",
                         Tick = 1,
-                        MoveX = 1f,
-                        MoveY = 0f
+                        TurnInput = 0f,
+                        ThrottleInput = 1f
                     }),
                 RemotePeer);
             serverRuntime.DrainPendingMessagesAsync().GetAwaiter().GetResult();

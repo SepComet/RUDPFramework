@@ -14,6 +14,7 @@ namespace Network.NetworkHost
         private readonly MessageManager messageManager;
         private readonly ServerNetworkHost host;
         private readonly ServerAuthoritativeMovementConfiguration configuration;
+        private readonly IAuthoritativeMovementWorldValidator worldValidator;
         private readonly Dictionary<string, ServerAuthoritativeMovementState> statesByPeer = new();
         private long nextBroadcastTick = 1;
         private TimeSpan accumulatedBroadcastTime;
@@ -21,11 +22,13 @@ namespace Network.NetworkHost
         public ServerAuthoritativeMovementCoordinator(
             ServerNetworkHost host,
             MessageManager messageManager,
-            ServerAuthoritativeMovementConfiguration configuration)
+            ServerAuthoritativeMovementConfiguration configuration,
+            IAuthoritativeMovementWorldValidator worldValidator)
         {
             this.host = host ?? throw new ArgumentNullException(nameof(host));
             this.messageManager = messageManager ?? throw new ArgumentNullException(nameof(messageManager));
             this.configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
+            this.worldValidator = worldValidator ?? throw new ArgumentNullException(nameof(worldValidator));
         }
 
         public IReadOnlyList<ServerAuthoritativeMovementState> States
@@ -48,7 +51,7 @@ namespace Network.NetworkHost
                 throw new ArgumentNullException(nameof(remoteEndPoint));
             }
 
-            if (string.IsNullOrWhiteSpace(playerId))
+            if (string.IsNullOrWhiteSpace(playerId) || !host.IsAcceptedPlayer(remoteEndPoint, playerId))
             {
                 state = null;
                 return false;
@@ -99,13 +102,14 @@ namespace Network.NetworkHost
             }
 
             if (string.IsNullOrWhiteSpace(input.PlayerId) ||
-                !IsFinite(input.MoveX) ||
-                !IsFinite(input.MoveY))
+                !IsFinite(input.TurnInput) ||
+                !IsFinite(input.ThrottleInput) ||
+                !host.TryResolveAcceptedPeer(sender, input.PlayerId, out var acceptedPeer))
             {
                 return Task.CompletedTask;
             }
 
-            var normalizedSender = Normalize(sender);
+            var normalizedSender = Normalize(acceptedPeer);
             var key = normalizedSender.ToString();
 
             lock (gate)
@@ -113,12 +117,18 @@ namespace Network.NetworkHost
                 if (statesByPeer.TryGetValue(key, out var existingState))
                 {
                     if (!string.Equals(existingState.PlayerId, input.PlayerId, StringComparison.Ordinal) ||
-                        input.Tick <= existingState.LastAcceptedMoveTick)
+                        input.Tick <= existingState.LastAcceptedMoveTick ||
+                        !host.TryRefreshAcceptedGameplayActivity(sender, input.PlayerId))
                     {
                         return Task.CompletedTask;
                     }
 
                     ApplyInput(existingState, input);
+                    return Task.CompletedTask;
+                }
+
+                if (!host.TryRefreshAcceptedGameplayActivity(sender, input.PlayerId))
+                {
                     return Task.CompletedTask;
                 }
 
@@ -172,6 +182,7 @@ namespace Network.NetworkHost
 
             foreach (var pendingBroadcast in pendingBroadcasts)
             {
+                // Keep the coordinator as the only gameplay-relevant PlayerState broadcast path.
                 messageManager.BroadcastMessage(pendingBroadcast.PlayerState, MessageType.PlayerState);
                 host.ObserveAuthoritativeState(pendingBroadcast.RemoteEndPoint, pendingBroadcast.PlayerState.Tick);
             }
@@ -330,58 +341,104 @@ namespace Network.NetworkHost
         private static void ApplyInput(ServerAuthoritativeMovementState state, MoveInput input)
         {
             state.LastAcceptedMoveTick = input.Tick;
-            state.InputX = input.MoveX;
-            state.InputY = input.MoveY;
+            state.InputX = ClampInput(input.TurnInput);
+            state.InputY = ClampInput(input.ThrottleInput);
 
-            if (input.MoveX == 0f && input.MoveY == 0f)
+            if (state.InputY == 0f)
             {
                 state.VelocityX = 0f;
                 state.VelocityY = 0f;
                 state.VelocityZ = 0f;
-                return;
             }
-
-            var length = MathF.Sqrt((input.MoveX * input.MoveX) + (input.MoveY * input.MoveY));
-            if (length <= 0f)
-            {
-                state.VelocityX = 0f;
-                state.VelocityY = 0f;
-                state.VelocityZ = 0f;
-                return;
-            }
-
-            state.Rotation = MathF.Atan2(input.MoveY, input.MoveX) * (180f / MathF.PI);
         }
 
         private void IntegrateState(ServerAuthoritativeMovementState state, TimeSpan elapsed)
         {
-            if (state.IsDead || (state.InputX == 0f && state.InputY == 0f))
+            if (state.IsDead)
             {
                 state.VelocityX = 0f;
                 state.VelocityY = 0f;
                 state.VelocityZ = 0f;
                 return;
             }
-
-            var length = MathF.Sqrt((state.InputX * state.InputX) + (state.InputY * state.InputY));
-            if (length <= 0f)
-            {
-                state.VelocityX = 0f;
-                state.VelocityY = 0f;
-                state.VelocityZ = 0f;
-                return;
-            }
-
-            var normalizedX = state.InputX / length;
-            var normalizedY = state.InputY / length;
-            state.VelocityX = normalizedX * configuration.MoveSpeed;
-            state.VelocityY = 0f;
-            state.VelocityZ = normalizedY * configuration.MoveSpeed;
 
             var deltaSeconds = (float)elapsed.TotalSeconds;
-            state.PositionX += state.VelocityX * deltaSeconds;
-            state.PositionY += state.VelocityY * deltaSeconds;
-            state.PositionZ += state.VelocityZ * deltaSeconds;
+            if (deltaSeconds <= 0f)
+            {
+                state.VelocityX = 0f;
+                state.VelocityY = 0f;
+                state.VelocityZ = 0f;
+                return;
+            }
+
+            var turnInput = ClampInput(state.InputX);
+            var throttleInput = ClampInput(state.InputY);
+            if (turnInput != 0f)
+            {
+                state.Rotation = NormalizeDegrees(state.Rotation + (turnInput * configuration.TurnSpeedDegreesPerSecond * deltaSeconds));
+            }
+
+            if (throttleInput == 0f)
+            {
+                state.VelocityX = 0f;
+                state.VelocityY = 0f;
+                state.VelocityZ = 0f;
+                return;
+            }
+
+            var rotationRadians = state.Rotation * (MathF.PI / 180f);
+            var forwardX = MathF.Cos(rotationRadians);
+            var forwardZ = MathF.Sin(rotationRadians);
+            state.VelocityX = forwardX * (throttleInput * configuration.MoveSpeed);
+            state.VelocityY = 0f;
+            state.VelocityZ = forwardZ * (throttleInput * configuration.MoveSpeed);
+
+            var candidatePositionX = state.PositionX + (state.VelocityX * deltaSeconds);
+            var candidatePositionY = state.PositionY + (state.VelocityY * deltaSeconds);
+            var candidatePositionZ = state.PositionZ + (state.VelocityZ * deltaSeconds);
+            var validationResult = worldValidator.Validate(new AuthoritativeMovementWorldValidationRequest(
+                state.RemoteEndPoint,
+                state.PlayerId,
+                state.PositionX,
+                state.PositionY,
+                state.PositionZ,
+                candidatePositionX,
+                candidatePositionY,
+                candidatePositionZ,
+                state.VelocityX,
+                state.VelocityY,
+                state.VelocityZ));
+            if (!validationResult.IsAllowed)
+            {
+                state.VelocityX = 0f;
+                state.VelocityY = 0f;
+                state.VelocityZ = 0f;
+                return;
+            }
+
+            state.PositionX = candidatePositionX;
+            state.PositionY = candidatePositionY;
+            state.PositionZ = candidatePositionZ;
+        }
+
+        private static float ClampInput(float value)
+        {
+            return MathF.Max(-1f, MathF.Min(1f, value));
+        }
+
+        private static float NormalizeDegrees(float degrees)
+        {
+            var normalized = degrees % 360f;
+            if (normalized <= -180f)
+            {
+                normalized += 360f;
+            }
+            else if (normalized > 180f)
+            {
+                normalized -= 360f;
+            }
+
+            return normalized;
         }
 
         private static PlayerState BuildPlayerState(ServerAuthoritativeMovementState state, long tick)

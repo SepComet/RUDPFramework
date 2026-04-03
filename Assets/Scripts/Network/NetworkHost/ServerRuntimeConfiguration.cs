@@ -14,6 +14,7 @@ namespace Network.NetworkHost
             }
 
             ReliablePort = reliablePort;
+            AuthoritativeMovementWorldValidator = PermissiveAuthoritativeMovementWorldValidator.Instance;
         }
 
         public int ReliablePort { get; }
@@ -35,6 +36,8 @@ namespace Network.NetworkHost
         public ServerAuthoritativeMovementConfiguration AuthoritativeMovement { get; set; }
 
         public ServerAuthoritativeCombatConfiguration AuthoritativeCombat { get; set; }
+
+        public IAuthoritativeMovementWorldValidator AuthoritativeMovementWorldValidator { get; set; }
 
         internal void Validate()
         {
@@ -58,6 +61,10 @@ namespace Network.NetworkHost
 
             AuthoritativeMovement?.Validate();
             AuthoritativeCombat?.Validate();
+            if (AuthoritativeMovementWorldValidator == null)
+            {
+                throw new ArgumentNullException(nameof(AuthoritativeMovementWorldValidator));
+            }
         }
     }
 }

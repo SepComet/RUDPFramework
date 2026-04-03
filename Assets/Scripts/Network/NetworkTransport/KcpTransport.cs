@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Linq;
 using System.Net;
@@ -10,7 +10,7 @@ using kcp;
 
 namespace Network.NetworkTransport
 {
-    public partial class KcpTransport : ITransport, ITransportMetricsSink
+    public partial class KcpTransport : ITransport, ITransportMetricsSink, IPeerSessionTransport
     {
         private const uint DefaultConv = 1;
         private const int DefaultNoDelay = 1;
@@ -231,6 +231,26 @@ namespace Network.NetworkTransport
                 _metricsModule.RecordPayloadReceived(session.RemoteEndPoint, payload.Length);
                 OnReceive?.Invoke(payload, session.RemoteEndPoint);
             }
+        }
+
+        public bool RemovePeerSession(IPEndPoint remoteEndPoint)
+        {
+            if (remoteEndPoint == null)
+            {
+                throw new ArgumentNullException(nameof(remoteEndPoint));
+            }
+
+            var normalizedEndPoint = NormalizeEndPoint(remoteEndPoint);
+            var key = normalizedEndPoint.ToString();
+            if (!_sessions.TryRemove(key, out var session))
+            {
+                return false;
+            }
+
+            RecordSessionDiagnostics(session, "removed");
+            session.Dispose();
+            _metricsModule.RecordSessionClosed(session.RemoteEndPoint);
+            return true;
         }
 
         private KcpSession GetOrCreateSession(IPEndPoint remoteEndPoint, uint conv)

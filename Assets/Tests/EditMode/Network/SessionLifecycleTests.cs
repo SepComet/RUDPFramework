@@ -196,6 +196,10 @@ namespace Tests.EditMode.Network
             host.StartAsync().GetAwaiter().GetResult();
             transport.EmitReceive(CreateEnvelope(MessageType.Heartbeat), peerA);
             transport.EmitReceive(CreateEnvelope(MessageType.Heartbeat), peerB);
+            host.NotifyLoginStarted(peerA);
+            host.NotifyLoginSucceeded(peerA, "player-a");
+            host.NotifyLoginStarted(peerB);
+            host.NotifyLoginSucceeded(peerB, "player-b");
 
             var removed = host.RemoveSession(peerA, "peer closed");
 
@@ -203,7 +207,7 @@ namespace Tests.EditMode.Network
             Assert.That(host.ManagedSessions.Count, Is.EqualTo(1));
             Assert.That(host.TryGetSession(peerA, out _), Is.False);
             Assert.That(host.TryGetSession(peerB, out var sessionB), Is.True);
-            Assert.That(sessionB.SessionManager.State, Is.EqualTo(ConnectionState.TransportConnected));
+            Assert.That(sessionB.SessionManager.State, Is.EqualTo(ConnectionState.LoggedIn));
         }
 
         [Test]

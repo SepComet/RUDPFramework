@@ -68,8 +68,8 @@ namespace Tests.EditMode.Network
             {
                 PlayerId = "player-1",
                 Tick = 12,
-                MoveX = 1,
-                MoveY = -1
+                TurnInput = 1,
+                ThrottleInput = -1
             };
 
             manager.SendMessage(message, MessageType.MoveInput);
@@ -82,8 +82,8 @@ namespace Tests.EditMode.Network
             Assert.That(envelope.Type, Is.EqualTo((int)MessageType.MoveInput));
             Assert.That(parsed.PlayerId, Is.EqualTo("player-1"));
             Assert.That(parsed.Tick, Is.EqualTo(12));
-            Assert.That(parsed.MoveX, Is.EqualTo(1));
-            Assert.That(parsed.MoveY, Is.EqualTo(-1));
+            Assert.That(parsed.TurnInput, Is.EqualTo(1));
+            Assert.That(parsed.ThrottleInput, Is.EqualTo(-1));
         }
 
         [Test]
@@ -100,8 +100,8 @@ namespace Tests.EditMode.Network
             {
                 PlayerId = "player-1",
                 Tick = 13,
-                MoveX = 0f,
-                MoveY = 0f
+                TurnInput = 0f,
+                ThrottleInput = 0f
             };
 
             manager.SendMessage(message, MessageType.MoveInput);
@@ -114,8 +114,8 @@ namespace Tests.EditMode.Network
             Assert.That(envelope.Type, Is.EqualTo((int)MessageType.MoveInput));
             Assert.That(parsed.PlayerId, Is.EqualTo("player-1"));
             Assert.That(parsed.Tick, Is.EqualTo(13));
-            Assert.That(parsed.MoveX, Is.EqualTo(0f));
-            Assert.That(parsed.MoveY, Is.EqualTo(0f));
+            Assert.That(parsed.TurnInput, Is.EqualTo(0f));
+            Assert.That(parsed.ThrottleInput, Is.EqualTo(0f));
         }
 
         [Test]
@@ -350,12 +350,12 @@ namespace Tests.EditMode.Network
             });
 
             transport.EmitReceive(
-                BuildEnvelope(MessageType.MoveInput, new MoveInput { PlayerId = "player-1", Tick = 8, MoveX = 1 }),
+                BuildEnvelope(MessageType.MoveInput, new MoveInput { PlayerId = "player-1", Tick = 8, ThrottleInput = 1 }),
                 Sender);
             manager.DrainPendingMessagesAsync().GetAwaiter().GetResult();
 
             transport.EmitReceive(
-                BuildEnvelope(MessageType.MoveInput, new MoveInput { PlayerId = "player-1", Tick = 6, MoveX = -1 }),
+                BuildEnvelope(MessageType.MoveInput, new MoveInput { PlayerId = "player-1", Tick = 6, ThrottleInput = -1 }),
                 Sender);
             manager.DrainPendingMessagesAsync().GetAwaiter().GetResult();
 

@@ -60,7 +60,7 @@ namespace Network.Defines {
             new pbr::GeneratedClrTypeInfo(typeof(global::Network.Defines.LoginResponse), global::Network.Defines.LoginResponse.Parser, new[]{ "PlayerId", "Positions", "Speed", "ServerTick", "Result" }, null, null, null, null),
             new pbr::GeneratedClrTypeInfo(typeof(global::Network.Defines.PlayerJoin), global::Network.Defines.PlayerJoin.Parser, new[]{ "PlayerId", "Position" }, null, null, null, null),
             new pbr::GeneratedClrTypeInfo(typeof(global::Network.Defines.LogoutRequest), global::Network.Defines.LogoutRequest.Parser, new[]{ "PlayerId" }, null, null, null, null),
-            new pbr::GeneratedClrTypeInfo(typeof(global::Network.Defines.MoveInput), global::Network.Defines.MoveInput.Parser, new[]{ "PlayerId", "Tick", "MoveX", "MoveY" }, null, null, null, null),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Network.Defines.MoveInput), global::Network.Defines.MoveInput.Parser, new[]{ "PlayerId", "Tick", "TurnInput", "ThrottleInput" }, null, null, null, null),
             new pbr::GeneratedClrTypeInfo(typeof(global::Network.Defines.ShootInput), global::Network.Defines.ShootInput.Parser, new[]{ "PlayerId", "Tick", "DirX", "DirY", "TargetId" }, null, null, null, null),
             new pbr::GeneratedClrTypeInfo(typeof(global::Network.Defines.CombatEvent), global::Network.Defines.CombatEvent.Parser, new[]{ "Tick", "EventType", "AttackerId", "TargetId", "Damage", "HitPosition" }, null, null, null, null),
             new pbr::GeneratedClrTypeInfo(typeof(global::Network.Defines.PlayerState), global::Network.Defines.PlayerState.Parser, new[]{ "PlayerId", "Position", "Velocity", "Rotation", "Tick", "Hp" }, null, null, null, null),
@@ -1628,8 +1628,8 @@ namespace Network.Defines {
     public MoveInput(MoveInput other) : this() {
       playerId_ = other.playerId_;
       tick_ = other.tick_;
-      moveX_ = other.moveX_;
-      moveY_ = other.moveY_;
+      turnInput_ = other.turnInput_;
+      throttleInput_ = other.throttleInput_;
       _unknownFields = pb::UnknownFieldSet.Clone(other._unknownFields);
     }
 
@@ -1663,27 +1663,27 @@ namespace Network.Defines {
       }
     }
 
-    /// <summary>Field number for the "move_x" field.</summary>
-    public const int MoveXFieldNumber = 3;
-    private float moveX_;
+    /// <summary>Field number for the "turn_input" field.</summary>
+    public const int TurnInputFieldNumber = 3;
+    private float turnInput_;
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
-    public float MoveX {
-      get { return moveX_; }
+    public float TurnInput {
+      get { return turnInput_; }
       set {
-        moveX_ = value;
+        turnInput_ = value;
       }
     }
 
-    /// <summary>Field number for the "move_y" field.</summary>
-    public const int MoveYFieldNumber = 4;
-    private float moveY_;
+    /// <summary>Field number for the "throttle_input" field.</summary>
+    public const int ThrottleInputFieldNumber = 4;
+    private float throttleInput_;
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
-    public float MoveY {
-      get { return moveY_; }
+    public float ThrottleInput {
+      get { return throttleInput_; }
       set {
-        moveY_ = value;
+        throttleInput_ = value;
       }
     }
 
@@ -1704,8 +1704,8 @@ namespace Network.Defines {
       }
       if (PlayerId != other.PlayerId) return false;
       if (Tick != other.Tick) return false;
-      if (!pbc::ProtobufEqualityComparers.BitwiseSingleEqualityComparer.Equals(MoveX, other.MoveX)) return false;
-      if (!pbc::ProtobufEqualityComparers.BitwiseSingleEqualityComparer.Equals(MoveY, other.MoveY)) return false;
+      if (!pbc::ProtobufEqualityComparers.BitwiseSingleEqualityComparer.Equals(TurnInput, other.TurnInput)) return false;
+      if (!pbc::ProtobufEqualityComparers.BitwiseSingleEqualityComparer.Equals(ThrottleInput, other.ThrottleInput)) return false;
       return Equals(_unknownFields, other._unknownFields);
     }
 
@@ -1715,8 +1715,8 @@ namespace Network.Defines {
       int hash = 1;
       if (PlayerId.Length != 0) hash ^= PlayerId.GetHashCode();
       if (Tick != 0L) hash ^= Tick.GetHashCode();
-      if (MoveX != 0F) hash ^= pbc::ProtobufEqualityComparers.BitwiseSingleEqualityComparer.GetHashCode(MoveX);
-      if (MoveY != 0F) hash ^= pbc::ProtobufEqualityComparers.BitwiseSingleEqualityComparer.GetHashCode(MoveY);
+      if (TurnInput != 0F) hash ^= pbc::ProtobufEqualityComparers.BitwiseSingleEqualityComparer.GetHashCode(TurnInput);
+      if (ThrottleInput != 0F) hash ^= pbc::ProtobufEqualityComparers.BitwiseSingleEqualityComparer.GetHashCode(ThrottleInput);
       if (_unknownFields != null) {
         hash ^= _unknownFields.GetHashCode();
       }
@@ -1743,13 +1743,13 @@ namespace Network.Defines {
         output.WriteRawTag(16);
         output.WriteInt64(Tick);
       }
-      if (MoveX != 0F) {
+      if (TurnInput != 0F) {
         output.WriteRawTag(29);
-        output.WriteFloat(MoveX);
+        output.WriteFloat(TurnInput);
       }
-      if (MoveY != 0F) {
+      if (ThrottleInput != 0F) {
         output.WriteRawTag(37);
-        output.WriteFloat(MoveY);
+        output.WriteFloat(ThrottleInput);
       }
       if (_unknownFields != null) {
         _unknownFields.WriteTo(output);
@@ -1769,13 +1769,13 @@ namespace Network.Defines {
         output.WriteRawTag(16);
         output.WriteInt64(Tick);
       }
-      if (MoveX != 0F) {
+      if (TurnInput != 0F) {
         output.WriteRawTag(29);
-        output.WriteFloat(MoveX);
+        output.WriteFloat(TurnInput);
       }
-      if (MoveY != 0F) {
+      if (ThrottleInput != 0F) {
         output.WriteRawTag(37);
-        output.WriteFloat(MoveY);
+        output.WriteFloat(ThrottleInput);
       }
       if (_unknownFields != null) {
         _unknownFields.WriteTo(ref output);
@@ -1793,10 +1793,10 @@ namespace Network.Defines {
       if (Tick != 0L) {
         size += 1 + pb::CodedOutputStream.ComputeInt64Size(Tick);
       }
-      if (MoveX != 0F) {
+      if (TurnInput != 0F) {
         size += 1 + 4;
       }
-      if (MoveY != 0F) {
+      if (ThrottleInput != 0F) {
         size += 1 + 4;
       }
       if (_unknownFields != null) {
@@ -1817,11 +1817,11 @@ namespace Network.Defines {
       if (other.Tick != 0L) {
         Tick = other.Tick;
       }
-      if (other.MoveX != 0F) {
-        MoveX = other.MoveX;
+      if (other.TurnInput != 0F) {
+        TurnInput = other.TurnInput;
       }
-      if (other.MoveY != 0F) {
-        MoveY = other.MoveY;
+      if (other.ThrottleInput != 0F) {
+        ThrottleInput = other.ThrottleInput;
       }
       _unknownFields = pb::UnknownFieldSet.MergeFrom(_unknownFields, other._unknownFields);
     }
@@ -1851,11 +1851,11 @@ namespace Network.Defines {
             break;
           }
           case 29: {
-            MoveX = input.ReadFloat();
+            TurnInput = input.ReadFloat();
             break;
           }
           case 37: {
-            MoveY = input.ReadFloat();
+            ThrottleInput = input.ReadFloat();
             break;
           }
         }
@@ -1886,11 +1886,11 @@ namespace Network.Defines {
             break;
           }
           case 29: {
-            MoveX = input.ReadFloat();
+            TurnInput = input.ReadFloat();
             break;
           }
           case 37: {
-            MoveY = input.ReadFloat();
+            ThrottleInput = input.ReadFloat();
             break;
           }
         }

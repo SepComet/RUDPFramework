@@ -33,8 +33,8 @@ namespace Tests.EditMode.Network
             Assert.That(stopInput, Is.Not.Null);
             Assert.That(stopInput.PlayerId, Is.EqualTo("player-1"));
             Assert.That(stopInput.Tick, Is.EqualTo(8));
-            Assert.That(stopInput.MoveX, Is.EqualTo(0f));
-            Assert.That(stopInput.MoveY, Is.EqualTo(0f));
+            Assert.That(stopInput.TurnInput, Is.EqualTo(0f));
+            Assert.That(stopInput.ThrottleInput, Is.EqualTo(0f));
             Assert.That(continuedIdle, Is.False);
             Assert.That(idleInput, Is.Null);
         }
@@ -85,9 +85,9 @@ namespace Tests.EditMode.Network
         public void ClientPredictionBuffer_AuthoritativeState_PrunesAcknowledgedMoveInputs()
         {
             var buffer = new ClientPredictionBuffer();
-            buffer.Record(new MoveInput { PlayerId = "player-1", Tick = 10, MoveX = 1f });
-            buffer.Record(new MoveInput { PlayerId = "player-1", Tick = 11, MoveX = 1f });
-            buffer.Record(new MoveInput { PlayerId = "player-1", Tick = 12, MoveX = 1f });
+            buffer.Record(new MoveInput { PlayerId = "player-1", Tick = 10, ThrottleInput = 1f });
+            buffer.Record(new MoveInput { PlayerId = "player-1", Tick = 11, ThrottleInput = 1f });
+            buffer.Record(new MoveInput { PlayerId = "player-1", Tick = 12, ThrottleInput = 1f });
 
             var accepted = buffer.TryApplyAuthoritativeState(
                 new PlayerState { PlayerId = "player-1", Tick = 11 },
@@ -104,7 +104,7 @@ namespace Tests.EditMode.Network
         public void ClientPredictionBuffer_StaleAuthoritativeState_IsIgnored()
         {
             var buffer = new ClientPredictionBuffer();
-            buffer.Record(new MoveInput { PlayerId = "player-1", Tick = 10, MoveX = 1f });
+            buffer.Record(new MoveInput { PlayerId = "player-1", Tick = 10, ThrottleInput = 1f });
             buffer.TryApplyAuthoritativeState(new PlayerState { PlayerId = "player-1", Tick = 10 }, out _);
 
             var accepted = buffer.TryApplyAuthoritativeState(
@@ -139,7 +139,7 @@ namespace Tests.EditMode.Network
             Assert.That(snapshot.Position, Is.EqualTo(new Vector3(5f, 0f, -3f)));
             Assert.That(snapshot.Velocity, Is.EqualTo(new Vector3(1.5f, 0f, 0.25f)));
             Assert.That(snapshot.Rotation, Is.EqualTo(90f));
-            Assert.That(snapshot.RotationQuaternion.eulerAngles.y, Is.EqualTo(90f).Within(0.01f));
+            Assert.That(snapshot.RotationQuaternion.eulerAngles.y, Is.EqualTo(0f).Within(0.01f));
             Assert.That(snapshot.Hp, Is.EqualTo(73));
         }
 
@@ -413,13 +413,13 @@ namespace Tests.EditMode.Network
             });
 
             transport.EmitReceive(
-                BuildEnvelope(MessageType.MoveInput, new MoveInput { PlayerId = "player-a", Tick = 5, MoveX = 1f }),
+                BuildEnvelope(MessageType.MoveInput, new MoveInput { PlayerId = "player-a", Tick = 5, ThrottleInput = 1f }),
                 peerA);
             transport.EmitReceive(
-                BuildEnvelope(MessageType.MoveInput, new MoveInput { PlayerId = "player-a", Tick = 4, MoveX = -1f }),
+                BuildEnvelope(MessageType.MoveInput, new MoveInput { PlayerId = "player-a", Tick = 4, ThrottleInput = -1f }),
                 peerA);
             transport.EmitReceive(
-                BuildEnvelope(MessageType.MoveInput, new MoveInput { PlayerId = "player-b", Tick = 4, MoveY = 1f }),
+                BuildEnvelope(MessageType.MoveInput, new MoveInput { PlayerId = "player-b", Tick = 4, TurnInput = 1f }),
                 peerB);
 
             Assert.That(handledTicksByPeer[peerA.ToString()], Is.EqualTo(new long[] { 5 }));

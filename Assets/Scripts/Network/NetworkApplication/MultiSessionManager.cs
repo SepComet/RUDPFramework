@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
@@ -87,9 +87,10 @@ namespace Network.NetworkApplication
             if (sessionManager.State == ConnectionState.Disconnected)
             {
                 sessionManager.NotifyTransportConnected();
+                return;
             }
 
-            sessionManager.NotifyInboundActivity();
+            sessionManager.NotifyTransportActivity();
         }
 
         public void NotifyTransportConnected(IPEndPoint remoteEndPoint)

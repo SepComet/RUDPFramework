@@ -39,8 +39,8 @@ namespace Tests.EditMode.Network
 
             using var runtime = ServerRuntimeEntryPoint.StartAsync(configuration).GetAwaiter().GetResult();
 
-            PrimePlayer(createdTransports[9000], PeerA, "player-a", 1);
-            PrimePlayer(createdTransports[9000], PeerB, "player-b", 1);
+            PrimePlayer(runtime, PeerA, "player-a");
+            PrimePlayer(runtime, PeerB, "player-b");
             runtime.DrainPendingMessagesAsync().GetAwaiter().GetResult();
 
             createdTransports[9000].EmitReceive(BuildEnvelope(MessageType.ShootInput, new ShootInput
@@ -111,8 +111,8 @@ namespace Tests.EditMode.Network
 
             using var runtime = ServerRuntimeEntryPoint.StartAsync(configuration).GetAwaiter().GetResult();
 
-            PrimePlayer(createdTransports[9001], PeerA, "player-a", 1);
-            PrimePlayer(createdTransports[9001], PeerB, "player-b", 1);
+            PrimePlayer(runtime, PeerA, "player-a");
+            PrimePlayer(runtime, PeerB, "player-b");
             runtime.DrainPendingMessagesAsync().GetAwaiter().GetResult();
 
             createdTransports[9000].EmitReceive(BuildEnvelope(MessageType.ShootInput, new ShootInput
@@ -166,8 +166,8 @@ namespace Tests.EditMode.Network
 
             using var runtime = ServerRuntimeEntryPoint.StartAsync(configuration).GetAwaiter().GetResult();
 
-            PrimePlayer(createdTransports[9000], PeerA, "player-a", 1);
-            PrimePlayer(createdTransports[9000], PeerB, "player-b", 1);
+            PrimePlayer(runtime, PeerA, "player-a");
+            PrimePlayer(runtime, PeerB, "player-b");
             runtime.DrainPendingMessagesAsync().GetAwaiter().GetResult();
 
             createdTransports[9000].EmitReceive(BuildEnvelope(MessageType.ShootInput, new ShootInput
@@ -192,15 +192,10 @@ namespace Tests.EditMode.Network
             Assert.That(runtime.AuthoritativeCombatStates.Count, Is.EqualTo(0));
         }
 
-        private static void PrimePlayer(FakeTransport transport, IPEndPoint peer, string playerId, long tick)
+        private static void PrimePlayer(ServerRuntimeHandle runtime, IPEndPoint peer, string playerId)
         {
-            transport.EmitReceive(BuildEnvelope(MessageType.MoveInput, new MoveInput
-            {
-                PlayerId = playerId,
-                Tick = tick,
-                MoveX = 0f,
-                MoveY = 0f
-            }), peer);
+            runtime.Host.NotifyLoginStarted(peer);
+            runtime.Host.NotifyLoginSucceeded(peer, playerId);
         }
 
         private static FakeTransport CreateTransport(IDictionary<int, FakeTransport> createdTransports, int port)
