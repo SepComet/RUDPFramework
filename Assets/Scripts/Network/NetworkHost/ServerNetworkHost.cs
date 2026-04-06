@@ -71,6 +71,8 @@ namespace Network.NetworkHost
 
         public MultiSessionManager SessionCoordinator { get; }
 
+        public TimeSpan AuthoritativeMovementCadence => authoritativeMovementCoordinator.SimulationInterval;
+
         public IReadOnlyList<ManagedNetworkSession> ManagedSessions => SessionCoordinator.Sessions;
 
         public IReadOnlyList<ServerAuthoritativeMovementState> AuthoritativeMovementStates => authoritativeMovementCoordinator.States;

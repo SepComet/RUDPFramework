@@ -23,11 +23,11 @@ The shared server networking path SHALL register `MoveInput` handling through th
 - **THEN** authoritative movement state for other managed peers remains unchanged
 
 ### Requirement: Server owns authoritative movement resolution
-The shared server networking path SHALL own the final movement state for each managed peer, including position, rotation, velocity, and stop state. Zero-vector movement input MUST stop authoritative movement rather than leaving the peer in its previous moving state.
+The shared server networking path SHALL own the final movement state for each managed peer, including position, rotation, velocity, and stop state. Zero-vector movement input MUST stop authoritative movement rather than leaving the peer in its previous moving state. The authoritative movement integrator MUST advance using the runtime's configured authoritative movement cadence so that movement resolution and later `PlayerState` snapshots are produced from the same server-side stepping contract.
 
 #### Scenario: Non-zero input advances authoritative movement state
 - **WHEN** the server processes an accepted non-zero `MoveInput` for a managed peer during an authority update step
-- **THEN** the server updates that peer's authoritative position, rotation, and velocity from server-side movement resolution
+- **THEN** the server updates that peer's authoritative position, rotation, and velocity from server-side movement resolution using the configured authoritative movement cadence
 - **THEN** the resulting state becomes the source of truth for later `PlayerState` broadcast
 
 #### Scenario: Zero-vector input stops authoritative movement
@@ -39,7 +39,7 @@ The shared server networking path SHALL own the final movement state for each ma
 The shared server networking path SHALL emit authoritative `PlayerState` snapshots for managed peers at a fixed cadence using the existing sync-lane message contract. Each snapshot MUST be derived from the server-owned authoritative player state and include the authoritative tick for client reconciliation and interpolation. Authoritative HP changes produced by server-side combat resolution MUST be reflected in later snapshots for the affected peer.
 
 #### Scenario: Authority update step emits sync-lane player snapshots
-- **WHEN** the server reaches a configured authority broadcast cadence while one or more managed peers have authoritative player state
+- **WHEN** the server reaches the configured authoritative movement cadence while one or more managed peers have authoritative player state
 - **THEN** it sends `PlayerState` snapshots using the sync-lane delivery policy when a distinct sync transport exists
 - **THEN** each snapshot includes the authoritative position, rotation, velocity, HP, and tick from server-owned state
 

@@ -13,13 +13,23 @@ The client SHALL keep one explicit owned authoritative `PlayerState` snapshot fo
 - **THEN** presentation and diagnostics read authoritative `position`, `rotation`, `hp`, and optional `velocity` from that owned snapshot
 
 ### Requirement: Local player reconciliation applies the full authoritative state by tick
-The controlled client SHALL continue reconciling local prediction from authoritative `PlayerState.Tick`, and that reconciliation MUST apply the accepted authoritative `position` and `rotation` while keeping authoritative HP and optional velocity synchronized with the owned player-state snapshot.
+The controlled client SHALL continue reconciling local prediction from authoritative `PlayerState` snapshots while keeping authoritative HP and optional velocity synchronized with the owned player-state snapshot. Reconciliation MUST use the acknowledged movement-input tick defined by the sync strategy, and the visible controlled-player transform MUST keep authoritative gameplay truth separate from short-lived visual correction state. Small divergence after replay MUST converge through explicit bounded correction state, while large divergence or failed convergence MUST still snap immediately to authoritative `position` and `rotation`.
 
 #### Scenario: Local authoritative state corrects predicted presentation
-- **WHEN** the controlled player accepts an authoritative `PlayerState` for tick `N`
+- **WHEN** the controlled player accepts an authoritative `PlayerState` whose acknowledged movement-input tick is `N`
 - **THEN** local reconciliation prunes or replays predicted movement using tick `N` according to the sync strategy
-- **THEN** the local player's visible transform is corrected toward authoritative `position` and `rotation`
-- **THEN** the local player's authoritative HP on the client matches the accepted `PlayerState`
+- **THEN** the controlled player's authoritative gameplay state updates immediately to the accepted `position`, `rotation`, HP, and optional velocity
+- **THEN** the local player's visible transform may temporarily differ only through bounded visual correction state that converges back to the authoritative baseline
+
+#### Scenario: Consecutive small corrections replace or fold into active visual correction
+- **WHEN** the controlled player accepts a newer authoritative `PlayerState` while a bounded visual correction is still active and the new residual error remains inside the configured bounded-correction limits
+- **THEN** the client updates the active visual correction state according to the sync strategy instead of preserving stale correction targets indefinitely
+- **THEN** the controlled player's authoritative gameplay state still reflects only the newest accepted `PlayerState`
+
+#### Scenario: Large local divergence bypasses bounded correction
+- **WHEN** the controlled player accepts an authoritative `PlayerState` and the remaining transform error exceeds the configured snap threshold or the active bounded correction can no longer converge within its budget
+- **THEN** the controlled player's visible transform snaps immediately to authoritative `position` and `rotation`
+- **THEN** any temporary visual correction state is cleared before later local prediction resumes from that authoritative baseline
 
 ### Requirement: Remote players apply authoritative state without inventing gameplay truth
 Remote player presentation SHALL consume the accepted authoritative player-state snapshot owned by the client and MUST NOT invent HP or final gameplay state locally. Remote movement presentation MUST smooth authoritative position and rotation through a small buffered snapshot interpolation path instead of applying only the latest snapshot directly. Stale remote `PlayerState` packets that are older than the latest accepted authoritative tick for that player MUST NOT overwrite the owned snapshot or enter the interpolation buffer.

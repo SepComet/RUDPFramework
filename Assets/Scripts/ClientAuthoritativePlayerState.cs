@@ -98,6 +98,7 @@ public sealed class ClientAuthoritativePlayerStateSnapshot
         SourceState = state.Clone();
         PlayerId = SourceState.PlayerId ?? string.Empty;
         Tick = SourceState.Tick;
+        AcknowledgedMoveTick = SourceState.AcknowledgedMoveTick;
         Position = SourceState.Position != null ? SourceState.Position.ToVector3() : Vector3.zero;
         Velocity = SourceState.Velocity != null ? SourceState.Velocity.ToVector3() : Vector3.zero;
         Rotation = SourceState.Rotation;
@@ -109,6 +110,8 @@ public sealed class ClientAuthoritativePlayerStateSnapshot
     public string PlayerId { get; }
 
     public long Tick { get; }
+
+    public long AcknowledgedMoveTick { get; }
 
     public Vector3 Position { get; }
 

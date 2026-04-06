@@ -17,6 +17,55 @@ namespace Tests.EditMode.Network
         private static readonly IPEndPoint PeerB = new(IPAddress.Loopback, 9102);
 
         [Test]
+        public void UpdateAuthoritativeMovement_UsesConfiguredSimulationCadence_AndExposesItOnRuntime()
+        {
+            var createdTransports = new Dictionary<int, FakeTransport>();
+            var configuration = new ServerRuntimeConfiguration(9000)
+            {
+                Dispatcher = new MainThreadNetworkDispatcher(),
+                TransportFactory = port => CreateTransport(createdTransports, port),
+                AuthoritativeMovement = new ServerAuthoritativeMovementConfiguration
+                {
+                    MoveSpeed = 4f,
+                    SimulationInterval = TimeSpan.FromMilliseconds(50),
+                    BroadcastInterval = TimeSpan.FromMilliseconds(100)
+                }
+            };
+
+            using var runtime = ServerRuntimeEntryPoint.StartAsync(configuration).GetAwaiter().GetResult();
+
+            runtime.Host.NotifyLoginStarted(PeerA);
+            runtime.Host.NotifyLoginSucceeded(PeerA, "player-a");
+            createdTransports[9000].EmitReceive(BuildEnvelope(MessageType.MoveInput, new MoveInput
+            {
+                PlayerId = "player-a",
+                Tick = 1,
+                TurnInput = 0f,
+                ThrottleInput = 1f
+            }), PeerA);
+
+            runtime.DrainPendingMessagesAsync().GetAwaiter().GetResult();
+            runtime.UpdateAuthoritativeMovement(TimeSpan.FromMilliseconds(49));
+
+            Assert.That(runtime.AuthoritativeMovementCadence, Is.EqualTo(TimeSpan.FromMilliseconds(50)));
+            Assert.That(runtime.TryGetAuthoritativeMovementState(PeerA, out var stateBeforeCadence), Is.True);
+            Assert.That(stateBeforeCadence.PositionX, Is.EqualTo(0f).Within(0.0001f));
+            Assert.That(createdTransports[9000].BroadcastMessages.Count, Is.EqualTo(0));
+
+            runtime.UpdateAuthoritativeMovement(TimeSpan.FromMilliseconds(1));
+
+            Assert.That(runtime.TryGetAuthoritativeMovementState(PeerA, out var stateAfterFirstStep), Is.True);
+            Assert.That(stateAfterFirstStep.PositionX, Is.EqualTo(0.2f).Within(0.0001f));
+            Assert.That(createdTransports[9000].BroadcastMessages.Count, Is.EqualTo(0));
+
+            runtime.UpdateAuthoritativeMovement(TimeSpan.FromMilliseconds(50));
+
+            Assert.That(runtime.TryGetAuthoritativeMovementState(PeerA, out var stateAfterSecondStep), Is.True);
+            Assert.That(stateAfterSecondStep.PositionX, Is.EqualTo(0.4f).Within(0.0001f));
+            Assert.That(createdTransports[9000].BroadcastMessages.Count, Is.EqualTo(1));
+        }
+
+        [Test]
         public void UpdateAuthoritativeMovement_AcceptsLatestTickPerPeer_AndKeepsStaleFilteringIndependent()
         {
             var createdTransports = new Dictionary<int, FakeTransport>();
@@ -118,6 +167,7 @@ namespace Tests.EditMode.Network
             var firstBroadcast = ParsePlayerState(createdTransports[9001].BroadcastMessages[0]);
             Assert.That(firstBroadcast.PlayerId, Is.EqualTo("player-a"));
             Assert.That(firstBroadcast.Tick, Is.EqualTo(1));
+            Assert.That(firstBroadcast.AcknowledgedMoveTick, Is.EqualTo(1));
             Assert.That(firstBroadcast.Position.X, Is.EqualTo(1f).Within(0.0001f));
             Assert.That(firstBroadcast.Velocity.X, Is.EqualTo(10f).Within(0.0001f));
             Assert.That(firstBroadcast.Velocity.Z, Is.EqualTo(0f).Within(0.0001f));
@@ -141,6 +191,7 @@ namespace Tests.EditMode.Network
 
             var secondBroadcast = ParsePlayerState(createdTransports[9001].BroadcastMessages[1]);
             Assert.That(secondBroadcast.Tick, Is.EqualTo(2));
+            Assert.That(secondBroadcast.AcknowledgedMoveTick, Is.EqualTo(2));
             Assert.That(secondBroadcast.Position.X, Is.EqualTo(1f).Within(0.0001f));
             Assert.That(secondBroadcast.Velocity.X, Is.EqualTo(0f).Within(0.0001f));
             Assert.That(secondBroadcast.Velocity.Z, Is.EqualTo(0f).Within(0.0001f));
@@ -186,6 +237,7 @@ namespace Tests.EditMode.Network
             var broadcast = ParsePlayerState(createdTransports[9001].BroadcastMessages[0]);
             Assert.That(broadcast.PlayerId, Is.EqualTo("player-a"));
             Assert.That(broadcast.Tick, Is.EqualTo(1));
+            Assert.That(broadcast.AcknowledgedMoveTick, Is.EqualTo(0));
             Assert.That(broadcast.Position.X, Is.EqualTo(0f).Within(0.0001f));
             Assert.That(broadcast.Position.Z, Is.EqualTo(0f).Within(0.0001f));
             Assert.That(broadcast.Velocity.X, Is.EqualTo(0f).Within(0.0001f));
@@ -228,6 +280,7 @@ namespace Tests.EditMode.Network
 
             var broadcast = ParsePlayerState(createdTransports[9000].BroadcastMessages[0]);
             Assert.That(broadcast.Tick, Is.EqualTo(1));
+            Assert.That(broadcast.AcknowledgedMoveTick, Is.EqualTo(5));
             Assert.That(broadcast.Position.X, Is.EqualTo(-0.3f).Within(0.0001f));
             Assert.That(broadcast.Position.Z, Is.EqualTo(0f).Within(0.0001f));
             Assert.That(broadcast.Velocity.X, Is.EqualTo(-6f).Within(0.0001f));

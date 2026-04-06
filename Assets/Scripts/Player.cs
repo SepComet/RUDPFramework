@@ -1,4 +1,5 @@
 using Network.Defines;
+using Network.NetworkApplication;
 using UnityEngine;
 
 public class Player : MonoBehaviour
@@ -15,7 +16,7 @@ public class Player : MonoBehaviour
     [SerializeField] private bool _isControlled;
     private readonly ClientAuthoritativePlayerState _authoritativeState = new();
 
-    public void LocalInit(string playerId, int speed, long serverTick)
+    public void LocalInit(string playerId, ClientMovementBootstrap bootstrap)
     {
         this.PlayerId = playerId;
         this._isControlled = true;
@@ -24,7 +25,7 @@ public class Player : MonoBehaviour
         _meshRenderer.material = _materials[idx];
 
         _playerUI.Init(this);
-        _movement.Init(true, this, speed, serverTick);
+        _movement.Init(true, this, bootstrap);
     }
 
     public void RemoteInit(string playerId, UnityEngine.Vector3 pos)

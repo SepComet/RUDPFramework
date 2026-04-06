@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Net;
+using System.Reflection;
 using Google.Protobuf;
 using Network.Defines;
 using Network.NetworkApplication;
@@ -90,11 +91,12 @@ namespace Tests.EditMode.Network
             buffer.Record(new MoveInput { PlayerId = "player-1", Tick = 12, ThrottleInput = 1f });
 
             var accepted = buffer.TryApplyAuthoritativeState(
-                new PlayerState { PlayerId = "player-1", Tick = 11 },
+                new PlayerState { PlayerId = "player-1", Tick = 11, AcknowledgedMoveTick = 11 },
                 out var replayInputs);
 
             Assert.That(accepted, Is.True);
             Assert.That(buffer.LastAuthoritativeTick, Is.EqualTo(11));
+            Assert.That(buffer.LastAcknowledgedMoveTick, Is.EqualTo(11));
             Assert.That(replayInputs.Count, Is.EqualTo(1));
             Assert.That(replayInputs[0].Input.Tick, Is.EqualTo(12));
             Assert.That(replayInputs[0].SimulatedDurationSeconds, Is.EqualTo(0f));
@@ -106,15 +108,121 @@ namespace Tests.EditMode.Network
         {
             var buffer = new ClientPredictionBuffer();
             buffer.Record(new MoveInput { PlayerId = "player-1", Tick = 10, ThrottleInput = 1f });
-            buffer.TryApplyAuthoritativeState(new PlayerState { PlayerId = "player-1", Tick = 10 }, out _);
+            buffer.TryApplyAuthoritativeState(new PlayerState { PlayerId = "player-1", Tick = 10, AcknowledgedMoveTick = 10 }, out _);
 
             var accepted = buffer.TryApplyAuthoritativeState(
-                new PlayerState { PlayerId = "player-1", Tick = 9 },
+                new PlayerState { PlayerId = "player-1", Tick = 9, AcknowledgedMoveTick = 9 },
                 out var replayInputs);
 
             Assert.That(accepted, Is.False);
             Assert.That(replayInputs, Is.Empty);
             Assert.That(buffer.LastAuthoritativeTick, Is.EqualTo(10));
+            Assert.That(buffer.LastAcknowledgedMoveTick, Is.EqualTo(10));
+        }
+
+        [Test]
+        public void ClientMovementBootstrap_LoginResponse_UsesServerConfirmedMovementParameters()
+        {
+            var bootstrap = ClientMovementBootstrap.FromLoginResponse(new LoginResponse
+            {
+                Speed = 12,
+                ServerTick = 34
+            });
+
+            Assert.That(bootstrap.AuthoritativeMoveSpeed, Is.EqualTo(12));
+            Assert.That(bootstrap.ServerTick, Is.EqualTo(34));
+        }
+
+        [Test]
+        public void ControlledPlayerCorrection_SmallError_UsesBoundedCorrection()
+        {
+            var result = ControlledPlayerCorrection.Resolve(
+                Vector3.zero,
+                Quaternion.identity,
+                new Vector3(0.75f, 0f, 0f),
+                Quaternion.Euler(0f, 15f, 0f),
+                new ControlledPlayerCorrectionSettings(0.05f, 10f, 180f));
+
+            Assert.That(result.UsedHardSnap, Is.False);
+            Assert.That(result.Position, Is.EqualTo(new Vector3(0.5f, 0f, 0f)));
+            Assert.That(result.Rotation.eulerAngles.y, Is.EqualTo(9f).Within(0.01f));
+        }
+
+        [Test]
+        public void ControlledPlayerCorrection_LargeError_UsesHardSnap()
+        {
+            var targetRotation = Quaternion.Euler(0f, 40f, 0f);
+            var result = ControlledPlayerCorrection.Resolve(
+                Vector3.zero,
+                Quaternion.identity,
+                new Vector3(2f, 0f, 0f),
+                targetRotation,
+                new ControlledPlayerCorrectionSettings(0.05f, 10f, 180f));
+
+            Assert.That(result.UsedHardSnap, Is.True);
+            Assert.That(result.Position, Is.EqualTo(new Vector3(2f, 0f, 0f)));
+            Assert.That(result.Rotation.eulerAngles.y, Is.EqualTo(targetRotation.eulerAngles.y).Within(0.01f));
+            Assert.That(result.NextState.IsActive, Is.False);
+        }
+
+        [Test]
+        public void ControlledPlayerCorrection_RepeatedSmallCorrections_UpdateActiveCorrectionState()
+        {
+            var settings = new ControlledPlayerCorrectionSettings(0.05f, 10f, 180f);
+            var first = ControlledPlayerCorrection.Resolve(
+                Vector3.zero,
+                Quaternion.identity,
+                new Vector3(0.75f, 0f, 0f),
+                Quaternion.identity,
+                settings);
+            var second = ControlledPlayerCorrection.Resolve(
+                first.Position,
+                first.Rotation,
+                new Vector3(1f, 0f, 0f),
+                Quaternion.identity,
+                settings,
+                first.NextState);
+
+            Assert.That(first.UsedHardSnap, Is.False);
+            Assert.That(first.NextState.IsActive, Is.True);
+            Assert.That(first.NextState.RemainingStepBudget, Is.EqualTo(2));
+            Assert.That(second.UsedHardSnap, Is.False);
+            Assert.That(second.Position.x, Is.EqualTo(1f).Within(0.0001f));
+            Assert.That(second.NextState.IsActive, Is.False);
+        }
+
+        [Test]
+        public void ControlledPlayerCorrection_RepeatedNonConvergentSmallCorrections_EventuallyUseHardSnap()
+        {
+            var settings = new ControlledPlayerCorrectionSettings(0.05f, 10f, 180f);
+            var first = ControlledPlayerCorrection.Resolve(
+                Vector3.zero,
+                Quaternion.identity,
+                new Vector3(0.75f, 0f, 0f),
+                Quaternion.identity,
+                settings);
+            var second = ControlledPlayerCorrection.Resolve(
+                first.Position,
+                first.Rotation,
+                new Vector3(1.25f, 0f, 0f),
+                Quaternion.identity,
+                settings,
+                first.NextState);
+            var third = ControlledPlayerCorrection.Resolve(
+                second.Position,
+                second.Rotation,
+                new Vector3(1.75f, 0f, 0f),
+                Quaternion.identity,
+                settings,
+                second.NextState);
+
+            Assert.That(first.UsedHardSnap, Is.False);
+            Assert.That(second.UsedHardSnap, Is.False);
+            Assert.That(second.NextState.IsActive, Is.True);
+            Assert.That(second.NextState.RemainingStepBudget, Is.EqualTo(1));
+            Assert.That(third.UsedHardSnap, Is.True);
+            Assert.That(third.Position.x, Is.EqualTo(1.75f).Within(0.0001f));
+            Assert.That(third.NextState.IsActive, Is.False);
         }
 
         [Test]
@@ -129,7 +237,8 @@ namespace Tests.EditMode.Network
                     Position = new global::Network.Defines.Vector3 { X = 5f, Y = 0f, Z = -3f },
                     Velocity = new global::Network.Defines.Vector3 { X = 1.5f, Y = 0f, Z = 0.25f },
                     Rotation = 90f,
-                    Hp = 73
+                    Hp = 73,
+                    AcknowledgedMoveTick = 9
                 },
                 out var snapshot);
 
@@ -137,6 +246,7 @@ namespace Tests.EditMode.Network
             Assert.That(owner.Current, Is.SameAs(snapshot));
             Assert.That(snapshot.PlayerId, Is.EqualTo("player-1"));
             Assert.That(snapshot.Tick, Is.EqualTo(14));
+            Assert.That(snapshot.AcknowledgedMoveTick, Is.EqualTo(9));
             Assert.That(snapshot.Position, Is.EqualTo(new Vector3(5f, 0f, -3f)));
             Assert.That(snapshot.Velocity, Is.EqualTo(new Vector3(1.5f, 0f, 0.25f)));
             Assert.That(snapshot.Rotation, Is.EqualTo(90f));
@@ -360,7 +470,7 @@ namespace Tests.EditMode.Network
             Assert.That(sample.HasValue, Is.True);
             Assert.That(sample.UsedInterpolation, Is.False);
             Assert.That(sample.Position, Is.EqualTo(new Vector3(2f, 0f, -1f)));
-            Assert.That(sample.Rotation.eulerAngles.y, Is.EqualTo(15f).Within(0.01f));
+            Assert.That(sample.Rotation.eulerAngles.y, Is.EqualTo(75f).Within(0.01f));
             Assert.That(sample.LatestSnapshot.Tick, Is.EqualTo(12));
         }
 
@@ -390,6 +500,172 @@ namespace Tests.EditMode.Network
 
             Assert.That(runtime.SessionManager.State, Is.EqualTo(ConnectionState.LoggedIn));
             Assert.That(runtime.ClockSync.CurrentServerTick, Is.EqualTo(88));
+        }
+
+        [Test]
+        public void ReplayPendingInputs_StepByStepMatchesAccumulated_ForZeroTurnInput()
+        {
+            // Arrange: set up MovementComponent with initial state.
+            var gameObject = new GameObject("replay-test");
+            try
+            {
+                var rigidbody = gameObject.AddComponent<Rigidbody>();
+                rigidbody.useGravity = false;
+                var movement = gameObject.AddComponent<MovementComponent>();
+                typeof(MovementComponent)
+                    .GetField("_rigid", BindingFlags.Instance | BindingFlags.NonPublic)
+                    .SetValue(movement, rigidbody);
+                movement.Init(true, master: null, speed: 10, serverTick: 0);
+
+                ResetMovementState(rigidbody, Vector3.zero, Quaternion.identity);
+
+                var turnInput = 0f;
+                var throttleInput = 1f;
+                var stepDuration = 0.05f;
+                var totalDuration = stepDuration * 3;  // 0.15s
+
+                // Act — step-by-step path (live prediction shape).
+                ApplyTankMovementStepByStep(movement, turnInput, throttleInput, stepDuration, steps: 3);
+                var stepByStepPosition = rigidbody.position;
+                var stepByStepRotation = rigidbody.rotation;
+
+                // Reset to initial state.
+                ResetMovementState(rigidbody, Vector3.zero, Quaternion.identity);
+
+                // Act — accumulated replay shape.
+                var accumulatedReplayInputs = new List<PredictedMoveStep>
+                {
+                    new PredictedMoveStep(
+                        new MoveInput { PlayerId = "player-1", Tick = 1, TurnInput = turnInput, ThrottleInput = throttleInput },
+                        totalDuration)
+                };
+                InvokeReplayPendingInputs(movement, accumulatedReplayInputs);
+                var accumulatedPosition = rigidbody.position;
+                var accumulatedRotation = rigidbody.rotation;
+
+                // Assert: for straight movement (turn=0), both paths should be identical.
+                Assert.That(Vector3.Distance(accumulatedPosition, stepByStepPosition), Is.LessThan(0.0001f),
+                    "Accumulated replay produced a different position than step-by-step for straight movement.");
+                Assert.That(Quaternion.Angle(accumulatedRotation, stepByStepRotation), Is.LessThan(0.01f),
+                    "Accumulated replay produced a different rotation than step-by-step for straight movement.");
+            }
+            finally
+            {
+                Object.DestroyImmediate(gameObject);
+            }
+        }
+
+        [Test]
+        public void ReplayPendingInputs_StepByStepDiffersFromAccumulated_ForNonZeroTurnInput()
+        {
+            // Arrange: use many small steps and a large turn input to make non-linearity visible.
+            var gameObject = new GameObject("replay-test");
+            try
+            {
+                var rigidbody = gameObject.AddComponent<Rigidbody>();
+                rigidbody.useGravity = false;
+                var movement = gameObject.AddComponent<MovementComponent>();
+                typeof(MovementComponent)
+                    .GetField("_rigid", BindingFlags.Instance | BindingFlags.NonPublic)
+                    .SetValue(movement, rigidbody);
+                movement.Init(true, master: null, speed: 10, serverTick: 0);
+
+                ResetMovementState(rigidbody, Vector3.zero, Quaternion.identity);
+
+                // Use 20 substeps of 0.05s (1 second total) with full turn.
+                // This amplifies the non-linearity so the one-shot and step-by-step diverge.
+                var turnInput = 1f;
+                var throttleInput = 1f;
+                var stepDuration = 0.05f;
+                var steps = 20;
+                var totalDuration = stepDuration * steps;
+
+                // Act — step-by-step (correct approach).
+                ApplyTankMovementStepByStep(movement, turnInput, throttleInput, stepDuration, steps);
+                var stepByStepPosition = rigidbody.position;
+
+                // Reset.
+                ResetMovementState(rigidbody, Vector3.zero, Quaternion.identity);
+
+                // Act — ONE big step simulating the old buggy accumulated behavior.
+                ApplyTankMovementStepByStep(movement, turnInput, throttleInput, totalDuration, steps: 1);
+                var oneShotPosition = rigidbody.position;
+
+                // Assert: for non-zero turn with many steps, the old one-shot and correct step-by-step MUST differ.
+                Assert.That(Vector3.Distance(oneShotPosition, stepByStepPosition), Is.GreaterThan(0.001f),
+                    "One-shot accumulated and step-by-step produced the same result for turn input — " +
+                    "the non-linearity should cause a visible divergence with many steps.");
+            }
+            finally
+            {
+                Object.DestroyImmediate(gameObject);
+            }
+        }
+
+        [Test]
+        public void ReplayPendingInputs_NonMultipleOfCadence_HandlesRemainingDuration()
+        {
+            // Arrange: simulate 0.12s — not a multiple of 50ms.
+            var gameObject = new GameObject("replay-test");
+            try
+            {
+                var rigidbody = gameObject.AddComponent<Rigidbody>();
+                rigidbody.useGravity = false;
+                var movement = gameObject.AddComponent<MovementComponent>();
+                typeof(MovementComponent)
+                    .GetField("_rigid", BindingFlags.Instance | BindingFlags.NonPublic)
+                    .SetValue(movement, rigidbody);
+                movement.Init(true, master: null, speed: 10, serverTick: 0);
+
+                ResetMovementState(rigidbody, Vector3.zero, Quaternion.identity);
+
+                var turnInput = 0f;
+                var throttleInput = 1f;
+                var totalDuration = 0.12f;  // 0.05 + 0.05 + 0.02
+
+                var replayInputs = new List<PredictedMoveStep>
+                {
+                    new PredictedMoveStep(
+                        new MoveInput { PlayerId = "player-1", Tick = 1, TurnInput = turnInput, ThrottleInput = throttleInput },
+                        totalDuration)
+                };
+                InvokeReplayPendingInputs(movement, replayInputs);
+                var finalPosition = rigidbody.position;
+
+                // Expected: 0.12s at speed=10 → 1.2 units forward.
+                var expectedPosition = new Vector3(0f, 0f, 1.2f);
+                Assert.That(finalPosition.z, Is.EqualTo(expectedPosition.z).Within(0.0001f),
+                    "Non-multiple of cadence (0.12s) had remaining duration lost or misapplied.");
+            }
+            finally
+            {
+                Object.DestroyImmediate(gameObject);
+            }
+        }
+
+        private static void ApplyTankMovementStepByStep(MovementComponent movement, float turnInput, float throttleInput, float stepDuration, int steps)
+        {
+            var method = typeof(MovementComponent)
+                .GetMethod("ApplyTankMovement", BindingFlags.Instance | BindingFlags.NonPublic);
+            for (var i = 0; i < steps; i++)
+            {
+                method.Invoke(movement, new object[] { turnInput, throttleInput, stepDuration });
+            }
+        }
+
+        private static void ResetMovementState(Rigidbody rigidbody, Vector3 position, Quaternion rotation)
+        {
+            rigidbody.position = position;
+            rigidbody.rotation = rotation;
+            rigidbody.velocity = Vector3.zero;
+            rigidbody.angularVelocity = Vector3.zero;
+        }
+
+        private static void InvokeReplayPendingInputs(MovementComponent movement, IReadOnlyList<PredictedMoveStep> inputs)
+        {
+            typeof(MovementComponent)
+                .GetMethod("ReplayPendingInputs", BindingFlags.Instance | BindingFlags.NonPublic)
+                .Invoke(movement, new object[] { inputs });
         }
 
         [Test]

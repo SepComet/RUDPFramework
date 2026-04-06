@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Network.Defines;
+using Network.NetworkApplication;
 using UnityEngine;
 using Vector3 = UnityEngine.Vector3;
 
@@ -20,6 +21,7 @@ public class MasterManager : MonoBehaviour
 
     public void InitPlayersState(LoginResponse response)
     {
+        var localBootstrap = ClientMovementBootstrap.FromLoginResponse(response);
         for (int i = 0; i < response.Positions.Count; i++)
         {
             string id = response.PlayerId[i];
@@ -31,17 +33,17 @@ public class MasterManager : MonoBehaviour
             }
             else
             {
-                RegisterLocalPlayer(response.Speed, response.ServerTick);
+                RegisterLocalPlayer(localBootstrap);
                 var ui = GameObject.Find("RegisterCanvas");
                 ui.SetActive(false);
             }
         }
     }
 
-    private void RegisterLocalPlayer(int speed, long serverTick)
+    private void RegisterLocalPlayer(ClientMovementBootstrap bootstrap)
     {
         Player player = GameObject.Instantiate(_playerPrefab, _playerParent).GetComponent<Player>();
-        player.LocalInit(LocalPlayerId, speed, serverTick);
+        player.LocalInit(LocalPlayerId, bootstrap);
         _players.Add(LocalPlayerId, player);
     }
 

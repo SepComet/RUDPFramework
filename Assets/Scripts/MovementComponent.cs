@@ -106,6 +106,11 @@ public class MovementComponent : MonoBehaviour
     private Player _master;
     private const float TurnSpeedDegreesPerSecond = 180f;
     private const float UnityYawOffsetDegrees = 90f;
+
+    // Server authoritative movement cadence used for replay substepping.
+    // This matches ServerAuthoritativeMovementConfiguration.SimulationInterval (50ms).
+    private const float kServerSimulationStepSeconds = 0.05f;
+
     private int _speed = 2;
     [SerializeField] private Rigidbody _rigid;
     private float _lastSendTime = 0;
@@ -114,6 +119,7 @@ public class MovementComponent : MonoBehaviour
     private Vector3 _serverPosition;
     private bool _hasServerState = false;
     private ClientAuthoritativePlayerStateSnapshot _lastAuthoritativeState;
+    private ControlledPlayerVisualCorrectionState _activeVisualCorrection;
 
     public long Tick { get; private set; } = 0;
     private long _startTickOffset = 0;
@@ -126,6 +132,11 @@ public class MovementComponent : MonoBehaviour
     private Vector3 _lastAimDirection = Vector3.forward;
     private bool _wasMovingLastFrame;
     private bool _stopMessagePending;
+
+    public void Init(bool isControlled, Player master, ClientMovementBootstrap bootstrap)
+    {
+        Init(isControlled, master, bootstrap.AuthoritativeMoveSpeed, bootstrap.ServerTick);
+    }
 
     public void Init(bool isControlled, Player master, int speed = 0, long serverTick = 0)
     {
@@ -212,15 +223,24 @@ public class MovementComponent : MonoBehaviour
 
     private void Reconcile(ClientAuthoritativePlayerStateSnapshot snapshot)
     {
+        _serverPosition = snapshot.Position;
         if (!_predictionBuffer.TryApplyAuthoritativeState(snapshot.SourceState, out var replayInputs))
         {
             return;
         }
 
-        _serverPosition = snapshot.Position;
-        _rigid.position = _serverPosition;
-        _rigid.rotation = snapshot.RotationQuaternion;
-        _rigid.velocity = snapshot.Velocity;
+        var correction = ControlledPlayerCorrection.Resolve(
+            _rigid.position,
+            _rigid.rotation,
+            snapshot.Position,
+            snapshot.RotationQuaternion,
+            new ControlledPlayerCorrectionSettings(kServerSimulationStepSeconds, _speed, TurnSpeedDegreesPerSecond),
+            _activeVisualCorrection);
+
+        _activeVisualCorrection = correction.NextState;
+        _rigid.position = correction.Position;
+        _rigid.rotation = correction.Rotation;
+        _rigid.velocity = correction.UsedHardSnap ? snapshot.Velocity : Vector3.zero;
         _rigid.angularVelocity = Vector3.zero;
         ReplayPendingInputs(replayInputs);
     }
@@ -305,7 +325,18 @@ public class MovementComponent : MonoBehaviour
     {
         foreach (var replayInput in replayInputs)
         {
-            ApplyTankMovement(replayInput.Input.TurnInput, replayInput.Input.ThrottleInput, replayInput.SimulatedDurationSeconds);
+            var remaining = replayInput.SimulatedDurationSeconds;
+            while (remaining > 0f)
+            {
+                // Use the server's fixed cadence (50ms) as the substep size to ensure
+                // replay trajectory matches live FixedUpdate prediction exactly.
+                var step = Mathf.Min(remaining, kServerSimulationStepSeconds);
+                ApplyTankMovement(
+                    replayInput.Input.TurnInput,
+                    replayInput.Input.ThrottleInput,
+                    step);
+                remaining -= step;
+            }
         }
 
         if (_isControlled)

@@ -8,6 +8,8 @@ namespace Network.NetworkHost
 
         public float TurnSpeedDegreesPerSecond { get; set; } = 180f;
 
+        public TimeSpan SimulationInterval { get; set; } = TimeSpan.FromMilliseconds(50);
+
         public TimeSpan BroadcastInterval { get; set; } = TimeSpan.FromMilliseconds(50);
 
         public int DefaultHp { get; set; } = 100;
@@ -22,6 +24,11 @@ namespace Network.NetworkHost
             if (float.IsNaN(TurnSpeedDegreesPerSecond) || float.IsInfinity(TurnSpeedDegreesPerSecond) || TurnSpeedDegreesPerSecond < 0f)
             {
                 throw new ArgumentOutOfRangeException(nameof(TurnSpeedDegreesPerSecond), "Turn speed must be finite and non-negative.");
+            }
+
+            if (SimulationInterval <= TimeSpan.Zero)
+            {
+                throw new ArgumentOutOfRangeException(nameof(SimulationInterval), "Simulation interval must be positive.");
             }
 
             if (BroadcastInterval <= TimeSpan.Zero)

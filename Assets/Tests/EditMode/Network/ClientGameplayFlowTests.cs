@@ -1,4 +1,5 @@
 using System.Net;
+using System.Reflection;
 using Network.Defines;
 using Network.NetworkApplication;
 using NUnit.Framework;
@@ -126,6 +127,71 @@ namespace Tests.EditMode.Network
         }
 
         [Test]
+        public void ClientGameplayFlow_ControlledPlayerReconciliation_ReplacesActiveCorrectionForConsecutiveSmallSnapshots()
+        {
+            var gameObject = new GameObject("controlled-player");
+            try
+            {
+                var rigidbody = gameObject.AddComponent<Rigidbody>();
+                rigidbody.useGravity = false;
+                var movement = gameObject.AddComponent<MovementComponent>();
+                typeof(MovementComponent)
+                    .GetField("_rigid", BindingFlags.Instance | BindingFlags.NonPublic)
+                    .SetValue(movement, rigidbody);
+                movement.Init(true, master: null, speed: 10, serverTick: 0);
+
+                movement.OnAuthoritativeState(new ClientAuthoritativePlayerStateSnapshot(
+                    GameplayFlowTestSupport.CreatePlayerState("player-1", 1, new Vector3(0.75f, 0f, 0f), acknowledgedMoveTick: 0)));
+                InvokeControlledFixedUpdate(movement);
+                Assert.That(rigidbody.position.x, Is.EqualTo(0.5f).Within(0.0001f));
+
+                movement.OnAuthoritativeState(new ClientAuthoritativePlayerStateSnapshot(
+                    GameplayFlowTestSupport.CreatePlayerState("player-1", 2, new Vector3(1f, 0f, 0f), acknowledgedMoveTick: 0)));
+                InvokeControlledFixedUpdate(movement);
+                Assert.That(rigidbody.position.x, Is.EqualTo(1f).Within(0.0001f));
+            }
+            finally
+            {
+                Object.DestroyImmediate(gameObject);
+            }
+        }
+
+        [Test]
+        public void ClientGameplayFlow_ControlledPlayerReconciliation_EscalatesToSnapAfterFailedConvergence()
+        {
+            var gameObject = new GameObject("controlled-player");
+            try
+            {
+                var rigidbody = gameObject.AddComponent<Rigidbody>();
+                rigidbody.useGravity = false;
+                var movement = gameObject.AddComponent<MovementComponent>();
+                typeof(MovementComponent)
+                    .GetField("_rigid", BindingFlags.Instance | BindingFlags.NonPublic)
+                    .SetValue(movement, rigidbody);
+                movement.Init(true, master: null, speed: 10, serverTick: 0);
+
+                movement.OnAuthoritativeState(new ClientAuthoritativePlayerStateSnapshot(
+                    GameplayFlowTestSupport.CreatePlayerState("player-1", 1, new Vector3(0.75f, 0f, 0f), acknowledgedMoveTick: 0)));
+                InvokeControlledFixedUpdate(movement);
+                Assert.That(rigidbody.position.x, Is.EqualTo(0.5f).Within(0.0001f));
+
+                movement.OnAuthoritativeState(new ClientAuthoritativePlayerStateSnapshot(
+                    GameplayFlowTestSupport.CreatePlayerState("player-1", 2, new Vector3(1.25f, 0f, 0f), acknowledgedMoveTick: 0)));
+                InvokeControlledFixedUpdate(movement);
+                Assert.That(rigidbody.position.x, Is.EqualTo(1f).Within(0.0001f));
+
+                movement.OnAuthoritativeState(new ClientAuthoritativePlayerStateSnapshot(
+                    GameplayFlowTestSupport.CreatePlayerState("player-1", 3, new Vector3(1.75f, 0f, 0f), acknowledgedMoveTick: 0)));
+                InvokeControlledFixedUpdate(movement);
+                Assert.That(rigidbody.position.x, Is.EqualTo(1.75f).Within(0.0001f));
+            }
+            finally
+            {
+                Object.DestroyImmediate(gameObject);
+            }
+        }
+
+        [Test]
         public void ClientGameplayHarness_RemotePlayerStateFlow_RejectsStaleSnapshots_AndUsesInterpolationOrLatestClamp()
         {
             var harness = new ClientGameplayTestHarness("local-player");
@@ -156,6 +222,12 @@ namespace Tests.EditMode.Network
             Assert.That(clamped.UsedInterpolation, Is.False);
             Assert.That(clamped.LatestSnapshot.Tick, Is.EqualTo(11));
             Assert.That(clamped.Position, Is.EqualTo(new Vector3(10f, 0f, 0f)));
+        }
+        private static void InvokeControlledFixedUpdate(MovementComponent movement)
+        {
+            typeof(MovementComponent)
+                .GetMethod("FixedUpdate", BindingFlags.Instance | BindingFlags.NonPublic)
+                .Invoke(movement, null);
         }
     }
 }

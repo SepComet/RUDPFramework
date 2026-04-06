@@ -75,6 +75,7 @@ message PlayerState {
   float rotation = 4;
   int64 tick = 5;
   int32 hp = 6;
+  int64 acknowledged_move_tick = 7;
 }
 
 message Heartbeat {

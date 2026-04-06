@@ -17,6 +17,7 @@ namespace Network.NetworkHost
         private readonly IAuthoritativeMovementWorldValidator worldValidator;
         private readonly Dictionary<string, ServerAuthoritativeMovementState> statesByPeer = new();
         private long nextBroadcastTick = 1;
+        private TimeSpan accumulatedSimulationTime;
         private TimeSpan accumulatedBroadcastTime;
 
         public ServerAuthoritativeMovementCoordinator(
@@ -30,6 +31,8 @@ namespace Network.NetworkHost
             this.configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
             this.worldValidator = worldValidator ?? throw new ArgumentNullException(nameof(worldValidator));
         }
+
+        public TimeSpan SimulationInterval => configuration.SimulationInterval;
 
         public IReadOnlyList<ServerAuthoritativeMovementState> States
         {
@@ -153,25 +156,30 @@ namespace Network.NetworkHost
 
             lock (gate)
             {
-                foreach (var state in statesByPeer.Values)
+                accumulatedSimulationTime += elapsed;
+                while (accumulatedSimulationTime >= configuration.SimulationInterval)
                 {
-                    IntegrateState(state, elapsed);
-                }
-
-                accumulatedBroadcastTime += elapsed;
-                while (accumulatedBroadcastTime >= configuration.BroadcastInterval)
-                {
-                    accumulatedBroadcastTime -= configuration.BroadcastInterval;
-                    pendingBroadcasts ??= new List<PendingBroadcast>();
+                    accumulatedSimulationTime -= configuration.SimulationInterval;
                     foreach (var state in statesByPeer.Values)
                     {
-                        state.LastBroadcastTick = nextBroadcastTick;
-                        pendingBroadcasts.Add(new PendingBroadcast(
-                            state.RemoteEndPoint,
-                            BuildPlayerState(state, nextBroadcastTick)));
+                        IntegrateState(state, configuration.SimulationInterval);
                     }
 
-                    nextBroadcastTick++;
+                    accumulatedBroadcastTime += configuration.SimulationInterval;
+                    while (accumulatedBroadcastTime >= configuration.BroadcastInterval)
+                    {
+                        accumulatedBroadcastTime -= configuration.BroadcastInterval;
+                        pendingBroadcasts ??= new List<PendingBroadcast>();
+                        foreach (var state in statesByPeer.Values)
+                        {
+                            state.LastBroadcastTick = nextBroadcastTick;
+                            pendingBroadcasts.Add(new PendingBroadcast(
+                                state.RemoteEndPoint,
+                                BuildPlayerState(state, nextBroadcastTick)));
+                        }
+
+                        nextBroadcastTick++;
+                    }
                 }
             }
 
@@ -299,6 +307,7 @@ namespace Network.NetworkHost
             lock (gate)
             {
                 statesByPeer.Clear();
+                accumulatedSimulationTime = TimeSpan.Zero;
                 accumulatedBroadcastTime = TimeSpan.Zero;
             }
         }
@@ -460,7 +469,8 @@ namespace Network.NetworkHost
                     Z = state.VelocityZ
                 },
                 Rotation = state.Rotation,
-                Hp = state.Hp
+                Hp = state.Hp,
+                AcknowledgedMoveTick = state.LastAcceptedMoveTick
             };
         }
 

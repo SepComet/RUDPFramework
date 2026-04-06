@@ -24,6 +24,8 @@ namespace Network.NetworkApplication
 
         public long? LastAuthoritativeTick { get; private set; }
 
+        public long? LastAcknowledgedMoveTick { get; private set; }
+
         public IReadOnlyList<PredictedMoveStep> PendingInputs => pendingInputs;
 
         public void Record(MoveInput input)
@@ -66,7 +68,8 @@ namespace Network.NetworkApplication
             }
 
             LastAuthoritativeTick = state.Tick;
-            pendingInputs.RemoveAll(input => input.Input.Tick <= state.Tick);
+            LastAcknowledgedMoveTick = state.AcknowledgedMoveTick;
+            pendingInputs.RemoveAll(input => input.Input.Tick <= state.AcknowledgedMoveTick);
             replayInputs = pendingInputs.ToArray();
             return true;
         }

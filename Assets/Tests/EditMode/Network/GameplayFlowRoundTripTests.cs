@@ -96,6 +96,7 @@ namespace Tests.EditMode.Network
             TransferBroadcastMessages(serverTransports[9001], clientSyncTransport, ServerSender);
             clientRuntime.DrainPendingMessagesAsync().GetAwaiter().GetResult();
 
+            Assert.That(serverRuntime.AuthoritativeMovementCadence, Is.EqualTo(TimeSpan.FromMilliseconds(50)));
             Assert.That(serverRuntime.TryGetAuthoritativeMovementState(ClientPeer, out var localServerState), Is.True);
             Assert.That(localServerState.PlayerId, Is.EqualTo("player-a"));
             Assert.That(localServerState.PositionX, Is.EqualTo(0.5f).Within(0.0001f));
@@ -105,6 +106,7 @@ namespace Tests.EditMode.Network
 
             Assert.That(clientHarness.TryGetState("player-a", out var localClientState), Is.True);
             Assert.That(localClientState.Tick, Is.EqualTo(1));
+            Assert.That(localClientState.AcknowledgedMoveTick, Is.EqualTo(1));
             Assert.That(localClientState.Position.x, Is.EqualTo(0.5f).Within(0.0001f));
             Assert.That(clientHarness.TryGetState("player-b", out var remoteClientState), Is.True);
             Assert.That(remoteClientState.Hp, Is.EqualTo(70));
@@ -177,6 +179,7 @@ namespace Tests.EditMode.Network
 
             Assert.That(clientHarness.TryGetState("player-a", out var idleLocalState), Is.True);
             Assert.That(idleLocalState.Tick, Is.EqualTo(1));
+            Assert.That(idleLocalState.AcknowledgedMoveTick, Is.EqualTo(0));
             Assert.That(idleLocalState.Position.x, Is.EqualTo(0f).Within(0.0001f));
             Assert.That(idleLocalState.Position.z, Is.EqualTo(0f).Within(0.0001f));
             Assert.That(idleLocalState.Hp, Is.EqualTo(100));

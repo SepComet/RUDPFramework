@@ -63,7 +63,7 @@ namespace Network.Defines {
             new pbr::GeneratedClrTypeInfo(typeof(global::Network.Defines.MoveInput), global::Network.Defines.MoveInput.Parser, new[]{ "PlayerId", "Tick", "TurnInput", "ThrottleInput" }, null, null, null, null),
             new pbr::GeneratedClrTypeInfo(typeof(global::Network.Defines.ShootInput), global::Network.Defines.ShootInput.Parser, new[]{ "PlayerId", "Tick", "DirX", "DirY", "TargetId" }, null, null, null, null),
             new pbr::GeneratedClrTypeInfo(typeof(global::Network.Defines.CombatEvent), global::Network.Defines.CombatEvent.Parser, new[]{ "Tick", "EventType", "AttackerId", "TargetId", "Damage", "HitPosition" }, null, null, null, null),
-            new pbr::GeneratedClrTypeInfo(typeof(global::Network.Defines.PlayerState), global::Network.Defines.PlayerState.Parser, new[]{ "PlayerId", "Position", "Velocity", "Rotation", "Tick", "Hp" }, null, null, null, null),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Network.Defines.PlayerState), global::Network.Defines.PlayerState.Parser, new[]{ "PlayerId", "Position", "Velocity", "Rotation", "Tick", "Hp", "AcknowledgedMoveTick" }, null, null, null, null),
             new pbr::GeneratedClrTypeInfo(typeof(global::Network.Defines.Heartbeat), global::Network.Defines.Heartbeat.Parser, null, null, null, null, null),
             new pbr::GeneratedClrTypeInfo(typeof(global::Network.Defines.HeartbeatResponse), global::Network.Defines.HeartbeatResponse.Parser, new[]{ "ServerTick" }, null, null, null, null)
           }));
@@ -2679,6 +2679,7 @@ namespace Network.Defines {
       rotation_ = other.rotation_;
       tick_ = other.tick_;
       hp_ = other.hp_;
+      acknowledgedMoveTick_ = other.acknowledgedMoveTick_;
       _unknownFields = pb::UnknownFieldSet.Clone(other._unknownFields);
     }
 
@@ -2760,6 +2761,18 @@ namespace Network.Defines {
       }
     }
 
+    /// <summary>Field number for the "acknowledged_move_tick" field.</summary>
+    public const int AcknowledgedMoveTickFieldNumber = 7;
+    private long acknowledgedMoveTick_;
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public long AcknowledgedMoveTick {
+      get { return acknowledgedMoveTick_; }
+      set {
+        acknowledgedMoveTick_ = value;
+      }
+    }
+
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public override bool Equals(object other) {
@@ -2781,6 +2794,7 @@ namespace Network.Defines {
       if (!pbc::ProtobufEqualityComparers.BitwiseSingleEqualityComparer.Equals(Rotation, other.Rotation)) return false;
       if (Tick != other.Tick) return false;
       if (Hp != other.Hp) return false;
+      if (AcknowledgedMoveTick != other.AcknowledgedMoveTick) return false;
       return Equals(_unknownFields, other._unknownFields);
     }
 
@@ -2794,6 +2808,7 @@ namespace Network.Defines {
       if (Rotation != 0F) hash ^= pbc::ProtobufEqualityComparers.BitwiseSingleEqualityComparer.GetHashCode(Rotation);
       if (Tick != 0L) hash ^= Tick.GetHashCode();
       if (Hp != 0) hash ^= Hp.GetHashCode();
+      if (AcknowledgedMoveTick != 0L) hash ^= AcknowledgedMoveTick.GetHashCode();
       if (_unknownFields != null) {
         hash ^= _unknownFields.GetHashCode();
       }
@@ -2836,6 +2851,10 @@ namespace Network.Defines {
         output.WriteRawTag(48);
         output.WriteInt32(Hp);
       }
+      if (AcknowledgedMoveTick != 0L) {
+        output.WriteRawTag(56);
+        output.WriteInt64(AcknowledgedMoveTick);
+      }
       if (_unknownFields != null) {
         _unknownFields.WriteTo(output);
       }
@@ -2870,6 +2889,10 @@ namespace Network.Defines {
         output.WriteRawTag(48);
         output.WriteInt32(Hp);
       }
+      if (AcknowledgedMoveTick != 0L) {
+        output.WriteRawTag(56);
+        output.WriteInt64(AcknowledgedMoveTick);
+      }
       if (_unknownFields != null) {
         _unknownFields.WriteTo(ref output);
       }
@@ -2897,6 +2920,9 @@ namespace Network.Defines {
       }
       if (Hp != 0) {
         size += 1 + pb::CodedOutputStream.ComputeInt32Size(Hp);
+      }
+      if (AcknowledgedMoveTick != 0L) {
+        size += 1 + pb::CodedOutputStream.ComputeInt64Size(AcknowledgedMoveTick);
       }
       if (_unknownFields != null) {
         size += _unknownFields.CalculateSize();
@@ -2933,6 +2959,9 @@ namespace Network.Defines {
       }
       if (other.Hp != 0) {
         Hp = other.Hp;
+      }
+      if (other.AcknowledgedMoveTick != 0L) {
+        AcknowledgedMoveTick = other.AcknowledgedMoveTick;
       }
       _unknownFields = pb::UnknownFieldSet.MergeFrom(_unknownFields, other._unknownFields);
     }
@@ -2983,6 +3012,10 @@ namespace Network.Defines {
             Hp = input.ReadInt32();
             break;
           }
+          case 56: {
+            AcknowledgedMoveTick = input.ReadInt64();
+            break;
+          }
         }
       }
     #endif
@@ -3030,6 +3063,10 @@ namespace Network.Defines {
           }
           case 48: {
             Hp = input.ReadInt32();
+            break;
+          }
+          case 56: {
+            AcknowledgedMoveTick = input.ReadInt64();
             break;
           }
         }

@@ -213,7 +213,7 @@ namespace Tests.EditMode.Network
             }.ToByteArray();
         }
 
-        public static PlayerState CreatePlayerState(string playerId, long tick, Vector3 position, int hp = 100, float rotation = 0f, Vector3? velocity = null)
+        public static PlayerState CreatePlayerState(string playerId, long tick, Vector3 position, int hp = 100, float rotation = 0f, Vector3? velocity = null, long acknowledgedMoveTick = 0)
         {
             var resolvedVelocity = velocity ?? Vector3.zero;
             return new PlayerState
@@ -223,7 +223,8 @@ namespace Tests.EditMode.Network
                 Position = new global::Network.Defines.Vector3 { X = position.x, Y = position.y, Z = position.z },
                 Velocity = new global::Network.Defines.Vector3 { X = resolvedVelocity.x, Y = resolvedVelocity.y, Z = resolvedVelocity.z },
                 Rotation = rotation,
-                Hp = hp
+                Hp = hp,
+                AcknowledgedMoveTick = acknowledgedMoveTick
             };
         }
     }

@@ -21,6 +21,8 @@ namespace Network.NetworkHost
 
         public bool IsRunning { get; private set; }
 
+        public TimeSpan AuthoritativeMovementCadence => host.AuthoritativeMovementCadence;
+
         public IReadOnlyList<ManagedNetworkSession> ManagedSessions => host.ManagedSessions;
 
         public IReadOnlyList<ServerAuthoritativeMovementState> AuthoritativeMovementStates => host.AuthoritativeMovementStates;
