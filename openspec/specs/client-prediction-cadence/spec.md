@@ -6,25 +6,27 @@ Define that client forward prediction accumulation uses an explicit cadence deri
 
 ## Requirements
 
-### Requirement: Forward prediction accumulation uses authoritative cadence
+### Requirement: Forward prediction accumulation tracks real elapsed time since last authoritative state
 
-The controlled-client forward prediction path SHALL accumulate pending input duration using the server authoritative movement cadence as the unit of accumulation, not `Time.fixedDeltaTime` or other render-loop-derived values. This ensures `SimulatedDurationSeconds` reflects server-time and remains coherent with the server's 50ms step cadence.
+The controlled-client forward prediction path SHALL accumulate pending input duration using the actual wall-clock elapsed time since the last authoritative state arrival, not a fixed server cadence increment per FixedUpdate. This ensures `SimulatedDurationSeconds` advances at the same rate as real time and is synchronized with the server's 20Hz authoritative cadence.
 
-#### Scenario: Accumulation uses server cadence regardless of FixedUpdate interval
-- **WHEN** the client FixedUpdate runs at a 20ms interval
-- **THEN** `AccumulateLatest` adds `kServerSimulationStepSeconds` (50ms) to the pending input duration
-- **THEN** the accumulated `SimulatedDurationSeconds` reflects server-time, not real elapsed time
+#### Scenario: Accumulation uses wall-clock time since last authoritative state
+- **WHEN** the client receives an authoritative state at wall-clock time T
+- **THEN** the next accumulation period starts from T
+- **WHEN** the subsequent FixedUpdate runs
+- **THEN** `AccumulateWithElapsedTime` adds only the wall-clock elapsed time since T (not the FixedUpdate interval)
+- **THEN** the accumulated `SimulatedDurationSeconds` is proportional to actual elapsed real time
 
-#### Scenario: Accumulation cadence is decoupled from frame rate
-- **WHEN** FixedUpdate runs at a non-standard interval due to platform variation or frame drops
-- **THEN** the accumulation unit remains `kServerSimulationStepSeconds`
-- **THEN** prediction timing does not drift relative to the server's authoritative cadence
+#### Scenario: Accumulation is decoupled from FixedUpdate cadence
+- **WHEN** FixedUpdate runs at 50Hz (20ms per step) but the server sends authoritative state at 20Hz (50ms per broadcast)
+- **THEN** the accumulation rate is driven by wall-clock time, not by FixedUpdate calls
+- **THEN** the pending input duration accumulates to match the real elapsed time between authoritative state arrivals, preventing 2.5x accumulation speedup
 
 ### Requirement: Forward prediction and replay use the same cadence source
 
-The controlled-client prediction system SHALL use the same cadence source for both forward accumulation and replay substepping, ensuring that `SimulatedDurationSeconds` consumed during replay matches the cadence used during forward prediction.
+The controlled-client prediction system SHALL use the same wall-clock time source for both forward accumulation and replay substepping, ensuring that `SimulatedDurationSeconds` consumed during replay matches the wall-clock elapsed time accumulated during forward prediction.
 
 #### Scenario: Forward accumulated duration matches replay substep size
-- **WHEN** the client accumulates pending input for 100ms of server-time
+- **WHEN** the client accumulates pending input for 100ms of wall-clock elapsed time
 - **THEN** the replay path consumes the same 100ms in 50ms substeps
-- **THEN** the forward accumulated duration and replay duration are derived from the same cadence constant
+- **THEN** the forward accumulated duration and replay duration are both derived from the same wall-clock time source

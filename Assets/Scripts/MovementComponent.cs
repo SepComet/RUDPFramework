@@ -111,10 +111,6 @@ public class MovementComponent : MonoBehaviour
     // This matches ServerAuthoritativeMovementConfiguration.SimulationInterval (50ms).
     private const float kServerSimulationStepSeconds = 0.05f;
 
-    // Dead-band threshold for send-interval correction hysteresis.
-    // Prevents frame-to-frame send interval oscillation when server tick offset hovers near zero.
-    private const int kTickOffsetThreshold = 2;
-
     private int _speed = 2;
     [SerializeField] private Rigidbody _rigid;
     private float _lastSendTime = 0;
@@ -211,7 +207,9 @@ public class MovementComponent : MonoBehaviour
             }
 
             Simulate(_cachedMoveInput);
-            _predictionBuffer.AccumulateLatest(kServerSimulationStepSeconds);
+            // Use actual elapsed wall-clock time since last authoritative state,
+            // decoupled from FixedUpdate cadence, to match server's 20Hz cadence.
+            _predictionBuffer.AccumulateWithElapsedTime(Time.time - _predictionBuffer.LastAuthoritativeStateTime);
         }
         else
         {
@@ -228,7 +226,7 @@ public class MovementComponent : MonoBehaviour
     private void Reconcile(ClientAuthoritativePlayerStateSnapshot snapshot)
     {
         _serverPosition = snapshot.Position;
-        if (!_predictionBuffer.TryApplyAuthoritativeState(snapshot.SourceState, out var replayInputs))
+        if (!_predictionBuffer.TryApplyAuthoritativeState(snapshot.SourceState, Time.time, out var replayInputs))
         {
             return;
         }
@@ -240,7 +238,7 @@ public class MovementComponent : MonoBehaviour
             predictedRotation,
             snapshot.Position,
             snapshot.RotationQuaternion,
-            new ControlledPlayerCorrectionSettings(kServerSimulationStepSeconds, _speed, TurnSpeedDegreesPerSecond),
+            new ControlledPlayerCorrectionSettings(kServerSimulationStepSeconds, _speed, TurnSpeedDegreesPerSecond, snapDistanceMultiplier: 5f),
             _activeVisualCorrection);
 
         _activeVisualCorrection = correction.NextState;
@@ -326,16 +324,6 @@ public class MovementComponent : MonoBehaviour
                 MainUI.Instance.OnServerTickChanged(serverTick);
             }
         }
-
-        if (_currentTickOffset < -kTickOffsetThreshold)
-        {
-            _sendInterval = 0.052f;
-        }
-        else if (_currentTickOffset > kTickOffsetThreshold)
-        {
-            _sendInterval = 0.048f;
-        }
-        // Within [-kTickOffsetThreshold, +kTickOffsetThreshold]: no correction, keep current interval
     }
 
     private void ReplayPendingInputs(IReadOnlyList<PredictedMoveStep> replayInputs)

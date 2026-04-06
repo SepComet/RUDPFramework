@@ -92,6 +92,7 @@ namespace Tests.EditMode.Network
 
             var accepted = buffer.TryApplyAuthoritativeState(
                 new PlayerState { PlayerId = "player-1", Tick = 11, AcknowledgedMoveTick = 11 },
+                0f,
                 out var replayInputs);
 
             Assert.That(accepted, Is.True);
@@ -108,10 +109,11 @@ namespace Tests.EditMode.Network
         {
             var buffer = new ClientPredictionBuffer();
             buffer.Record(new MoveInput { PlayerId = "player-1", Tick = 10, ThrottleInput = 1f });
-            buffer.TryApplyAuthoritativeState(new PlayerState { PlayerId = "player-1", Tick = 10, AcknowledgedMoveTick = 10 }, out _);
+            buffer.TryApplyAuthoritativeState(new PlayerState { PlayerId = "player-1", Tick = 10, AcknowledgedMoveTick = 10 }, 0f, out _);
 
             var accepted = buffer.TryApplyAuthoritativeState(
                 new PlayerState { PlayerId = "player-1", Tick = 9, AcknowledgedMoveTick = 9 },
+                0f,
                 out var replayInputs);
 
             Assert.That(accepted, Is.False);
@@ -668,6 +670,7 @@ namespace Tests.EditMode.Network
             // Act: apply authoritative state acknowledging tick 11.
             buffer.TryApplyAuthoritativeState(
                 new PlayerState { PlayerId = "player-1", Tick = 11, AcknowledgedMoveTick = 11 },
+                0f,
                 out _);
 
             // Assert: LastAcknowledgedMoveTick is correctly exposed.
@@ -730,41 +733,6 @@ namespace Tests.EditMode.Network
                     Assert.That(interval, Is.EqualTo(0.05f).Within(0.0001f),
                         $"Offset {i} should not trigger send interval correction within dead-band.");
                 }
-            }
-            finally
-            {
-                Object.DestroyImmediate(gameObject);
-            }
-        }
-
-        [Test]
-        public void MovementComponent_SetServerTick_CorrectsOutsideDeadBand()
-        {
-            // Arrange.
-            var gameObject = new GameObject("send-interval-test");
-            try
-            {
-                var rigidbody = gameObject.AddComponent<Rigidbody>();
-                rigidbody.useGravity = false;
-                rigidbody.interpolation = RigidbodyInterpolation.None;
-                var movement = gameObject.AddComponent<MovementComponent>();
-                typeof(MovementComponent)
-                    .GetField("_rigid", BindingFlags.Instance | BindingFlags.NonPublic)
-                    .SetValue(movement, rigidbody);
-                movement.Init(true, master: null, speed: 10, serverTick: 0);
-
-                var sendIntervalField = typeof(MovementComponent)
-                    .GetField("_sendInterval", BindingFlags.Instance | BindingFlags.NonPublic);
-
-                // Act/Assert: positive offset beyond threshold sets 0.048f (send faster).
-                movement.SetServerTick(5);  // offset = 5
-                Assert.That((float)sendIntervalField.GetValue(movement), Is.EqualTo(0.048f).Within(0.0001f),
-                    "Positive offset > +2 should set send interval to 0.048f");
-
-                // Act/Assert: negative offset below threshold sets 0.052f (send slower).
-                movement.SetServerTick(-5);  // offset = -5
-                Assert.That((float)sendIntervalField.GetValue(movement), Is.EqualTo(0.052f).Within(0.0001f),
-                    "Negative offset < -2 should set send interval to 0.052f");
             }
             finally
             {

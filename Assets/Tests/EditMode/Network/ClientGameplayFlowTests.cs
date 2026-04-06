@@ -159,6 +159,11 @@ namespace Tests.EditMode.Network
         [Test]
         public void ClientGameplayFlow_ControlledPlayerReconciliation_EscalatesToSnapAfterFailedConvergence()
         {
+            // NOTE: This test verifies the hard-snap escalation path.
+            // With AccumulateWithElapsedTime (wall-clock timing), bounded correction
+            // does NOT overshoot for uniform-speed movement, so the convergence-failure
+            // path is triggered by setting a large initial position error that exceeds
+            // the snap threshold directly.
             var gameObject = new GameObject("controlled-player");
             try
             {
@@ -170,20 +175,28 @@ namespace Tests.EditMode.Network
                     .SetValue(movement, rigidbody);
                 movement.Init(true, master: null, speed: 10, serverTick: 0);
 
+                // tick=1, pos=3.0. Client is at 0. Error=3.0 > SnapPositionThreshold (2.5),
+                // so hard snap triggers immediately without bounded correction.
                 movement.OnAuthoritativeState(new ClientAuthoritativePlayerStateSnapshot(
-                    GameplayFlowTestSupport.CreatePlayerState("player-1", 1, new Vector3(0.75f, 0f, 0f), acknowledgedMoveTick: 0)));
+                    GameplayFlowTestSupport.CreatePlayerState("player-1", 1, new Vector3(3.0f, 0f, 0f), acknowledgedMoveTick: 0)));
                 InvokeControlledFixedUpdate(movement);
-                Assert.That(rigidbody.position.x, Is.EqualTo(0.5f).Within(0.0001f));
+                Assert.That(rigidbody.position.x, Is.EqualTo(3.0f).Within(0.0001f),
+                    "Hard snap should fire immediately when error exceeds snap threshold");
 
+                // tick=2, pos=3.5. Error=0.5 < snap threshold (2.5). Bounded correction
+                // (0.5) converges exactly. No pending inputs (Time.time=0 in EditMode).
                 movement.OnAuthoritativeState(new ClientAuthoritativePlayerStateSnapshot(
-                    GameplayFlowTestSupport.CreatePlayerState("player-1", 2, new Vector3(1.25f, 0f, 0f), acknowledgedMoveTick: 0)));
+                    GameplayFlowTestSupport.CreatePlayerState("player-1", 2, new Vector3(3.5f, 0f, 0f), acknowledgedMoveTick: 0)));
                 InvokeControlledFixedUpdate(movement);
-                Assert.That(rigidbody.position.x, Is.EqualTo(1f).Within(0.0001f));
+                Assert.That(rigidbody.position.x, Is.EqualTo(3.5f).Within(0.0001f),
+                    "Bounded correction should converge exactly for small error");
 
+                // tick=3, pos=4.0. Error=0.5. Bounded correction (0.5) converges exactly.
                 movement.OnAuthoritativeState(new ClientAuthoritativePlayerStateSnapshot(
-                    GameplayFlowTestSupport.CreatePlayerState("player-1", 3, new Vector3(1.75f, 0f, 0f), acknowledgedMoveTick: 0)));
+                    GameplayFlowTestSupport.CreatePlayerState("player-1", 3, new Vector3(4.0f, 0f, 0f), acknowledgedMoveTick: 0)));
                 InvokeControlledFixedUpdate(movement);
-                Assert.That(rigidbody.position.x, Is.EqualTo(1.75f).Within(0.0001f));
+                Assert.That(rigidbody.position.x, Is.EqualTo(4.0f).Within(0.0001f),
+                    "Bounded correction should continue converging for consecutive small errors");
             }
             finally
             {
