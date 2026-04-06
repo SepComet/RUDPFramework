@@ -111,6 +111,10 @@ public class MovementComponent : MonoBehaviour
     // This matches ServerAuthoritativeMovementConfiguration.SimulationInterval (50ms).
     private const float kServerSimulationStepSeconds = 0.05f;
 
+    // Dead-band threshold for send-interval correction hysteresis.
+    // Prevents frame-to-frame send interval oscillation when server tick offset hovers near zero.
+    private const int kTickOffsetThreshold = 2;
+
     private int _speed = 2;
     [SerializeField] private Rigidbody _rigid;
     private float _lastSendTime = 0;
@@ -207,7 +211,7 @@ public class MovementComponent : MonoBehaviour
             }
 
             Simulate(_cachedMoveInput);
-            _predictionBuffer.AccumulateLatest(Time.fixedDeltaTime);
+            _predictionBuffer.AccumulateLatest(kServerSimulationStepSeconds);
         }
         else
         {
@@ -229,9 +233,11 @@ public class MovementComponent : MonoBehaviour
             return;
         }
 
+        var predictedPosition = _rigid.position;
+        var predictedRotation = _rigid.rotation;
         var correction = ControlledPlayerCorrection.Resolve(
-            _rigid.position,
-            _rigid.rotation,
+            predictedPosition,
+            predictedRotation,
             snapshot.Position,
             snapshot.RotationQuaternion,
             new ControlledPlayerCorrectionSettings(kServerSimulationStepSeconds, _speed, TurnSpeedDegreesPerSecond),
@@ -243,6 +249,16 @@ public class MovementComponent : MonoBehaviour
         _rigid.velocity = correction.UsedHardSnap ? snapshot.Velocity : Vector3.zero;
         _rigid.angularVelocity = Vector3.zero;
         ReplayPendingInputs(replayInputs);
+
+        if (MainUI.Instance != null)
+        {
+            MainUI.Instance.OnCorrectionMagnitudeChanged?.Invoke(
+                predictedPosition,
+                snapshot.Position,
+                correction.PositionError,
+                correction.RotationErrorDegrees);
+            MainUI.Instance.OnAcknowledgedMoveTickChanged?.Invoke(_predictionBuffer.LastAcknowledgedMoveTick ?? 0);
+        }
     }
 
     private Vector3 CaptureMovement()
@@ -311,14 +327,15 @@ public class MovementComponent : MonoBehaviour
             }
         }
 
-        if (_currentTickOffset < 0)
+        if (_currentTickOffset < -kTickOffsetThreshold)
         {
             _sendInterval = 0.052f;
         }
-        if (_currentTickOffset > 0)
+        else if (_currentTickOffset > kTickOffsetThreshold)
         {
             _sendInterval = 0.048f;
         }
+        // Within [-kTickOffsetThreshold, +kTickOffsetThreshold]: no correction, keep current interval
     }
 
     private void ReplayPendingInputs(IReadOnlyList<PredictedMoveStep> replayInputs)

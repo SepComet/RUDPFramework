@@ -6,7 +6,8 @@
       "Bash(openspec instructions:*)",
       "Bash(dotnet build:*)",
       "Bash(dotnet test:*)",
-      "Bash(dotnet Temp/Bin/Debug/Network.EditMode.Tests/Network.EditMode.Tests.dll)"
+      "Bash(dotnet Temp/Bin/Debug/Network.EditMode.Tests/Network.EditMode.Tests.dll)",
+      "Bash(openspec list:*)"
     ]
   },
   "outputStyle": "default"

@@ -4,26 +4,32 @@ Current assessment:
 
 - Loopback repro means transport delay is not the primary cause of the remaining local-player jitter.
 - The next round should focus on deterministic prediction/reconciliation timing before adding more local smoothing.
+- **IMPORTANT**: Network layer was modified (shared between Server and Client). Server side has not yet adapted to the Network layer changes — this may be the root cause of remaining jitter. Client-side prediction timing fixes (Steps 1-5) are complete but insufficient if the server is not correctly integrated with the new Network layer.
 
 Step-by-step plan:
 
 1. Align replay integration granularity with live prediction
+   - [x] finish
    - Replace one-shot replay of an accumulated input duration with fixed substeps.
    - Ensure replay uses the same movement integration shape as the normal `FixedUpdate` prediction path, especially for turn-and-move input.
 
 2. Align client prediction cadence with server authoritative cadence
+   - [x] finish
    - Introduce an explicit local prediction/replay cadence derived from the authoritative movement cadence.
    - Avoid mixing client-side `Time.fixedDeltaTime` prediction with server-side fixed-cadence authoritative integration in reconciliation-sensitive paths.
 
 3. Stabilize or remove send-rate oscillation driven by server tick offset
+   - [x] finish
    - Revisit `MovementComponent.SetServerTick(...)` and stop toggling `_sendInterval` directly between nearby values when the offset crosses zero.
    - If clock correction is still needed, add hysteresis or filtering so the send cadence does not bounce frame-to-frame.
 
 4. Re-measure controlled-player correction after timing fixes
+   - [x] finish (jitter still visible — residual error confirmed, see Step 5)
    - Keep remote-player interpolation as-is; do not treat local-player jitter as a remote interpolation problem.
    - Only refine local visual correction further if meaningful residual error remains after steps 1-3.
 
 5. Add regression coverage and diagnostics for the remaining jitter path
+   - [x] finish
    - Add tests that compare live prediction and replayed prediction under the same turn/throttle sequence.
    - Add tests for server tick offset calibration so small offset sign changes do not continuously retarget send cadence.
    - Add or expose diagnostics for acknowledged move tick, predicted pose, authoritative pose, and correction magnitude per snapshot.
@@ -33,3 +39,8 @@ Acceptance:
 - Controlled-player loopback movement no longer shows repeated small pull-back under steady turn-and-move input.
 - Replay after authoritative reconciliation produces the same trajectory shape as forward local prediction for the same input sequence.
 - Small server tick offset fluctuations do not cause visible local cadence oscillation.
+- Server is correctly integrated with the updated Network layer (not yet verified).
+
+## Open Questions
+
+- Server-side adaptation to Network layer changes: Has the server been updated to correctly work with the modified Network layer? If not, the server may be sending authoritative state updates at incorrect cadence or with inconsistent timing, causing persistent jitter on the client side.

@@ -27,9 +27,9 @@ Set `DOTNET_CLI_HOME=.dotnet-home` and `DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1` if 
 
 The transport layer uses two distinct lanes with different delivery semantics:
 
-| Lane | Policy | Messages |
-|------|--------|----------|
-| **Sync lane** (`HighFrequencySync`) | Latest-wins, stale-drop | `MoveInput`, `PlayerState` |
+| Lane                                  | Policy                       | Messages                                     |
+|---------------------------------------|------------------------------|----------------------------------------------|
+| **Sync lane** (`HighFrequencySync`)   | Latest-wins, stale-drop      | `MoveInput`, `PlayerState`                   |
 | **Reliable lane** (`ReliableOrdered`) | Ordered, guaranteed delivery | `ShootInput`, `CombatEvent`, login/heartbeat |
 
 Never mix messages with different delivery requirements into the same lane.

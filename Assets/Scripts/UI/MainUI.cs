@@ -11,12 +11,16 @@ public class MainUI : MonoBehaviour
     [SerializeField] private Text _serverTickText;
     [SerializeField] private Text _startTickOffsetText;
     [SerializeField] private Text _clientTickText;
+    [SerializeField] private Text _correctionText;
+    [SerializeField] private Text _acknowledgedTickText;
 
     public UnityAction<Vector3> OnServerPosChanged;
     public UnityAction<Vector3> OnClientPosChanged;
     public UnityAction<long> OnServerTickChanged;
     public UnityAction<long> OnStartTickOffsetChanged;
     public UnityAction<long> OnClientTickChanged;
+    public UnityAction<Vector3, Vector3, float, float> OnCorrectionMagnitudeChanged;
+    public UnityAction<long> OnAcknowledgedMoveTickChanged;
 
     private void Awake()
     {
@@ -30,6 +34,8 @@ public class MainUI : MonoBehaviour
         OnServerTickChanged += UpdateServerTickText;
         OnClientTickChanged += UpdateClientTickText;
         OnStartTickOffsetChanged += UpdateStartTickOffsetText;
+        OnCorrectionMagnitudeChanged += UpdateCorrectionText;
+        OnAcknowledgedMoveTickChanged += UpdateAcknowledgedTickText;
     }
 
     private void OnDisable()
@@ -39,6 +45,8 @@ public class MainUI : MonoBehaviour
         OnServerTickChanged -= UpdateServerTickText;
         OnClientTickChanged -= UpdateClientTickText;
         OnStartTickOffsetChanged -= UpdateStartTickOffsetText;
+        OnCorrectionMagnitudeChanged -= UpdateCorrectionText;
+        OnAcknowledgedMoveTickChanged -= UpdateAcknowledgedTickText;
     }
 
     private void UpdateServerPositionText(Vector3 pos)
@@ -64,5 +72,15 @@ public class MainUI : MonoBehaviour
     private void UpdateClientTickText(long tick)
     {
         _clientTickText.text = "客户端Tick：" + tick;
+    }
+
+    private void UpdateCorrectionText(Vector3 predictedPos, Vector3 authoritativePos, float positionError, float rotationError)
+    {
+        _correctionText.text = $"校正：pos差={positionError:F4} rot差={rotationError:F2}°";
+    }
+
+    private void UpdateAcknowledgedTickText(long tick)
+    {
+        _acknowledgedTickText.text = "AckTick：" + tick;
     }
 }

@@ -603,6 +603,176 @@ namespace Tests.EditMode.Network
         }
 
         [Test]
+        public void ReplayPendingInputs_NonZeroTurn_MatchesLivePrediction()
+        {
+            // Arrange: verify that live step-by-step prediction and ReplayPendingInputs
+            // produce identical trajectories for non-zero turn input (turn=0.5, throttle=1, 0.10s).
+            var gameObject = new GameObject("replay-test");
+            try
+            {
+                var rigidbody = gameObject.AddComponent<Rigidbody>();
+                rigidbody.useGravity = false;
+                var movement = gameObject.AddComponent<MovementComponent>();
+                typeof(MovementComponent)
+                    .GetField("_rigid", BindingFlags.Instance | BindingFlags.NonPublic)
+                    .SetValue(movement, rigidbody);
+                movement.Init(true, master: null, speed: 10, serverTick: 0);
+
+                ResetMovementState(rigidbody, Vector3.zero, Quaternion.identity);
+
+                var turnInput = 0.5f;
+                var throttleInput = 1f;
+                var stepDuration = 0.05f;
+                var steps = 2;  // 0.10s total
+
+                // Act — live prediction: step-by-step ApplyTankMovement (correct shape).
+                ApplyTankMovementStepByStep(movement, turnInput, throttleInput, stepDuration, steps);
+                var livePosition = rigidbody.position;
+                var liveRotation = rigidbody.rotation;
+
+                // Reset.
+                ResetMovementState(rigidbody, Vector3.zero, Quaternion.identity);
+
+                // Act — replay path: ReplayPendingInputs with same total duration.
+                var replayInputs = new List<PredictedMoveStep>
+                {
+                    new PredictedMoveStep(
+                        new MoveInput { PlayerId = "player-1", Tick = 1, TurnInput = turnInput, ThrottleInput = throttleInput },
+                        stepDuration * steps)
+                };
+                InvokeReplayPendingInputs(movement, replayInputs);
+                var replayPosition = rigidbody.position;
+                var replayRotation = rigidbody.rotation;
+
+                // Assert: both paths must produce identical trajectories.
+                Assert.That(Vector3.Distance(replayPosition, livePosition), Is.LessThan(0.0001f),
+                    "Replay produced a different position than live prediction for non-zero turn input.");
+                Assert.That(Quaternion.Angle(replayRotation, liveRotation), Is.LessThan(0.01f),
+                    "Replay produced a different rotation than live prediction for non-zero turn input.");
+            }
+            finally
+            {
+                Object.DestroyImmediate(gameObject);
+            }
+        }
+
+        [Test]
+        public void ClientPredictionBuffer_LastAcknowledgedMoveTick_IsExposed()
+        {
+            // Arrange: buffer with inputs at ticks 10, 11, 12.
+            var buffer = new ClientPredictionBuffer();
+            buffer.Record(new MoveInput { PlayerId = "player-1", Tick = 10, ThrottleInput = 1f });
+            buffer.Record(new MoveInput { PlayerId = "player-1", Tick = 11, ThrottleInput = 1f });
+            buffer.Record(new MoveInput { PlayerId = "player-1", Tick = 12, ThrottleInput = 1f });
+
+            // Act: apply authoritative state acknowledging tick 11.
+            buffer.TryApplyAuthoritativeState(
+                new PlayerState { PlayerId = "player-1", Tick = 11, AcknowledgedMoveTick = 11 },
+                out _);
+
+            // Assert: LastAcknowledgedMoveTick is correctly exposed.
+            Assert.That(buffer.LastAcknowledgedMoveTick, Is.EqualTo(11),
+                "LastAcknowledgedMoveTick was not correctly set after authoritative state application.");
+        }
+
+        [Test]
+        public void ControlledPlayerCorrection_CorrectionMagnitude_IsExposed()
+        {
+            // Arrange: small position and rotation error.
+            var currentPos = Vector3.zero;
+            var currentRot = Quaternion.identity;
+            var targetPos = new Vector3(0.5f, 0f, 0f);
+            var targetRot = Quaternion.Euler(0f, 10f, 0f);
+            var settings = new ControlledPlayerCorrectionSettings(0.05f, 10f, 180f);
+
+            // Act.
+            var result = ControlledPlayerCorrection.Resolve(currentPos, currentRot, targetPos, targetRot, settings);
+
+            // Assert: PositionError and RotationErrorDegrees are exposed and meaningful.
+            Assert.That(result.PositionError, Is.GreaterThan(0f),
+                "PositionError should be greater than zero for non-zero position divergence.");
+            Assert.That(result.RotationErrorDegrees, Is.GreaterThan(0f),
+                "RotationErrorDegrees should be greater than zero for non-zero rotation divergence.");
+            Assert.That(result.PositionError, Is.EqualTo(Vector3.Distance(currentPos, targetPos)).Within(0.0001f),
+                "PositionError should equal the distance between current and target positions.");
+            Assert.That(result.RotationErrorDegrees, Is.EqualTo(Quaternion.Angle(currentRot, targetRot)).Within(0.01f),
+                "RotationErrorDegrees should equal the angle between current and target rotations.");
+        }
+
+        [Test]
+        public void MovementComponent_SetServerTick_DoesNotOscillateWithinDeadBand()
+        {
+            // Arrange: set up MovementComponent and initialize controlled state.
+            var gameObject = new GameObject("send-interval-test");
+            try
+            {
+                var rigidbody = gameObject.AddComponent<Rigidbody>();
+                rigidbody.useGravity = false;
+                rigidbody.interpolation = RigidbodyInterpolation.None;
+                var movement = gameObject.AddComponent<MovementComponent>();
+                typeof(MovementComponent)
+                    .GetField("_rigid", BindingFlags.Instance | BindingFlags.NonPublic)
+                    .SetValue(movement, rigidbody);
+                movement.Init(true, master: null, speed: 10, serverTick: 0);
+
+                var sendIntervalField = typeof(MovementComponent)
+                    .GetField("_sendInterval", BindingFlags.Instance | BindingFlags.NonPublic);
+
+                // Set an initial interval as baseline.
+                sendIntervalField.SetValue(movement, 0.05f);
+
+                // Act/Assert: offsets within [-2, +2] dead-band do not change the interval.
+                // Simulate offset hovering around zero.
+                for (var i = -2; i <= 2; i++)
+                {
+                    movement.SetServerTick(i);  // Tick=0, so offset = i - 0 - 0 = i
+                    var interval = (float)sendIntervalField.GetValue(movement);
+                    Assert.That(interval, Is.EqualTo(0.05f).Within(0.0001f),
+                        $"Offset {i} should not trigger send interval correction within dead-band.");
+                }
+            }
+            finally
+            {
+                Object.DestroyImmediate(gameObject);
+            }
+        }
+
+        [Test]
+        public void MovementComponent_SetServerTick_CorrectsOutsideDeadBand()
+        {
+            // Arrange.
+            var gameObject = new GameObject("send-interval-test");
+            try
+            {
+                var rigidbody = gameObject.AddComponent<Rigidbody>();
+                rigidbody.useGravity = false;
+                rigidbody.interpolation = RigidbodyInterpolation.None;
+                var movement = gameObject.AddComponent<MovementComponent>();
+                typeof(MovementComponent)
+                    .GetField("_rigid", BindingFlags.Instance | BindingFlags.NonPublic)
+                    .SetValue(movement, rigidbody);
+                movement.Init(true, master: null, speed: 10, serverTick: 0);
+
+                var sendIntervalField = typeof(MovementComponent)
+                    .GetField("_sendInterval", BindingFlags.Instance | BindingFlags.NonPublic);
+
+                // Act/Assert: positive offset beyond threshold sets 0.048f (send faster).
+                movement.SetServerTick(5);  // offset = 5
+                Assert.That((float)sendIntervalField.GetValue(movement), Is.EqualTo(0.048f).Within(0.0001f),
+                    "Positive offset > +2 should set send interval to 0.048f");
+
+                // Act/Assert: negative offset below threshold sets 0.052f (send slower).
+                movement.SetServerTick(-5);  // offset = -5
+                Assert.That((float)sendIntervalField.GetValue(movement), Is.EqualTo(0.052f).Within(0.0001f),
+                    "Negative offset < -2 should set send interval to 0.052f");
+            }
+            finally
+            {
+                Object.DestroyImmediate(gameObject);
+            }
+        }
+
+        [Test]
         public void ReplayPendingInputs_NonMultipleOfCadence_HandlesRemainingDuration()
         {
             // Arrange: simulate 0.12s — not a multiple of 50ms.

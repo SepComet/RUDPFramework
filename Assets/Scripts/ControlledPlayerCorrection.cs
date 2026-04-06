@@ -64,12 +64,16 @@ public readonly struct ControlledPlayerCorrectionResult
         Vector3 position,
         Quaternion rotation,
         bool usedHardSnap,
-        ControlledPlayerVisualCorrectionState nextState)
+        ControlledPlayerVisualCorrectionState nextState,
+        float positionError,
+        float rotationErrorDegrees)
     {
         Position = position;
         Rotation = rotation;
         UsedHardSnap = usedHardSnap;
         NextState = nextState;
+        PositionError = positionError;
+        RotationErrorDegrees = rotationErrorDegrees;
     }
 
     public Vector3 Position { get; }
@@ -79,6 +83,10 @@ public readonly struct ControlledPlayerCorrectionResult
     public bool UsedHardSnap { get; }
 
     public ControlledPlayerVisualCorrectionState NextState { get; }
+
+    public float PositionError { get; }
+
+    public float RotationErrorDegrees { get; }
 }
 
 public static class ControlledPlayerCorrection
@@ -114,17 +122,17 @@ public static class ControlledPlayerCorrection
 
         if (positionError <= Mathf.Epsilon && rotationError <= Mathf.Epsilon)
         {
-            return new ControlledPlayerCorrectionResult(targetPosition, targetRotation, false, ControlledPlayerVisualCorrectionState.None);
+            return new ControlledPlayerCorrectionResult(targetPosition, targetRotation, false, ControlledPlayerVisualCorrectionState.None, positionError, rotationError);
         }
 
         if (boundedPositionCorrection <= Mathf.Epsilon && boundedRotationCorrection <= Mathf.Epsilon)
         {
-            return new ControlledPlayerCorrectionResult(targetPosition, targetRotation, true, ControlledPlayerVisualCorrectionState.None);
+            return new ControlledPlayerCorrectionResult(targetPosition, targetRotation, true, ControlledPlayerVisualCorrectionState.None, positionError, rotationError);
         }
 
         if (positionError > settings.SnapPositionThreshold || rotationError > settings.SnapRotationThresholdDegrees)
         {
-            return new ControlledPlayerCorrectionResult(targetPosition, targetRotation, true, ControlledPlayerVisualCorrectionState.None);
+            return new ControlledPlayerCorrectionResult(targetPosition, targetRotation, true, ControlledPlayerVisualCorrectionState.None, positionError, rotationError);
         }
 
         var remainingStepBudget = activeCorrection.IsActive
@@ -132,7 +140,7 @@ public static class ControlledPlayerCorrection
             : settings.MaxCorrectionSteps;
         if (remainingStepBudget <= 0)
         {
-            return new ControlledPlayerCorrectionResult(targetPosition, targetRotation, true, ControlledPlayerVisualCorrectionState.None);
+            return new ControlledPlayerCorrectionResult(targetPosition, targetRotation, true, ControlledPlayerVisualCorrectionState.None, positionError, rotationError);
         }
 
         var correctedPosition = Vector3.MoveTowards(currentPosition, targetPosition, boundedPositionCorrection);
@@ -141,19 +149,21 @@ public static class ControlledPlayerCorrection
         var nextRotationError = Quaternion.Angle(correctedRotation, targetRotation);
         if (nextPositionError <= Mathf.Epsilon && nextRotationError <= Mathf.Epsilon)
         {
-            return new ControlledPlayerCorrectionResult(targetPosition, targetRotation, false, ControlledPlayerVisualCorrectionState.None);
+            return new ControlledPlayerCorrectionResult(targetPosition, targetRotation, false, ControlledPlayerVisualCorrectionState.None, positionError, rotationError);
         }
 
         remainingStepBudget--;
         if (remainingStepBudget <= 0)
         {
-            return new ControlledPlayerCorrectionResult(targetPosition, targetRotation, true, ControlledPlayerVisualCorrectionState.None);
+            return new ControlledPlayerCorrectionResult(targetPosition, targetRotation, true, ControlledPlayerVisualCorrectionState.None, positionError, rotationError);
         }
 
         return new ControlledPlayerCorrectionResult(
             correctedPosition,
             correctedRotation,
             false,
-            new ControlledPlayerVisualCorrectionState(targetPosition, targetRotation, remainingStepBudget));
+            new ControlledPlayerVisualCorrectionState(targetPosition, targetRotation, remainingStepBudget),
+            positionError,
+            rotationError);
     }
 }
