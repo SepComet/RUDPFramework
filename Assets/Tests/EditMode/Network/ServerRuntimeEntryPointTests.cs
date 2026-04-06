@@ -24,7 +24,7 @@ namespace Tests.EditMode.Network
                 TransportFactory = port => CreateTransport(createdTransports, port)
             };
 
-            using var runtime = NetworkIntegrationFactory.StartServerRuntimeAsync(configuration).GetAwaiter().GetResult();
+            using var runtime = ServerRuntimeEntryPoint.StartAsync(configuration).GetAwaiter().GetResult();
 
             Assert.That(createdTransports.Keys, Is.EquivalentTo(new[] { 9000 }));
             Assert.That(runtime.IsRunning, Is.True);

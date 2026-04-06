@@ -1,5 +1,4 @@
 using System;
-using System.Threading.Tasks;
 using Network.NetworkHost;
 using Network.NetworkTransport;
 
@@ -63,8 +62,6 @@ namespace Network.NetworkApplication
             ServerAuthoritativeCombatConfiguration authoritativeCombat = null,
             IAuthoritativeMovementWorldValidator authoritativeMovementWorldValidator = null)
         {
-            ValidateDualPortConfiguration(reliablePort, syncPort);
-
             transportFactory ??= static port => new KcpTransport(port);
 
             var reliableTransport = transportFactory(reliablePort)
@@ -89,11 +86,6 @@ namespace Network.NetworkApplication
                 authoritativeMovement,
                 authoritativeCombat,
                 authoritativeMovementWorldValidator ?? PermissiveAuthoritativeMovementWorldValidator.Instance);
-        }
-
-        public static Task<ServerRuntimeHandle> StartServerRuntimeAsync(ServerRuntimeConfiguration configuration)
-        {
-            return ServerRuntimeEntryPoint.StartAsync(configuration);
         }
 
         private static void ValidateDualPortConfiguration(int reliablePort, int? syncPort)
