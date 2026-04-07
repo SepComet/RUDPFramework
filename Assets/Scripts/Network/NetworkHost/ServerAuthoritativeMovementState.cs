@@ -5,12 +5,13 @@ namespace Network.NetworkHost
 {
     public sealed class ServerAuthoritativeMovementState
     {
-        public ServerAuthoritativeMovementState(IPEndPoint remoteEndPoint, string playerId, int hp)
+        public ServerAuthoritativeMovementState(IPEndPoint remoteEndPoint, string playerId, int hp, float speed = 5f)
         {
             RemoteEndPoint = remoteEndPoint ?? throw new ArgumentNullException(nameof(remoteEndPoint));
             PlayerId = playerId ?? throw new ArgumentNullException(nameof(playerId));
             Hp = hp;
             IsDead = hp <= 0;
+            Speed = speed;
         }
 
         public IPEndPoint RemoteEndPoint { get; }
@@ -44,5 +45,7 @@ namespace Network.NetworkHost
         public float InputX { get; internal set; }
 
         public float InputY { get; internal set; }
+
+        public float Speed { get; internal set; }
     }
 }

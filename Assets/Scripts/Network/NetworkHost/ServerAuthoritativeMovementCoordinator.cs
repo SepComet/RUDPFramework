@@ -34,6 +34,8 @@ namespace Network.NetworkHost
 
         public TimeSpan SimulationInterval => configuration.SimulationInterval;
 
+        public float MoveSpeed => configuration.MoveSpeed;
+
         public IReadOnlyList<ServerAuthoritativeMovementState> States
         {
             get
@@ -47,7 +49,7 @@ namespace Network.NetworkHost
             }
         }
 
-        public bool EnsureState(IPEndPoint remoteEndPoint, string playerId, out ServerAuthoritativeMovementState state)
+        public bool EnsureState(IPEndPoint remoteEndPoint, string playerId, float? speed, out ServerAuthoritativeMovementState state)
         {
             if (remoteEndPoint == null)
             {
@@ -73,14 +75,21 @@ namespace Network.NetworkHost
                         return false;
                     }
 
+                    if (speed.HasValue)
+                    {
+                        existingState.Speed = speed.Value;
+                    }
+
                     state = CloneState(existingState);
                     return true;
                 }
 
+                var resolvedSpeed = speed ?? configuration.MoveSpeed;
                 var createdState = new ServerAuthoritativeMovementState(
                     normalizedSender,
                     playerId,
-                    configuration.DefaultHp);
+                    configuration.DefaultHp,
+                    resolvedSpeed);
                 statesByPeer.Add(key, createdState);
                 state = CloneState(createdState);
                 return true;
@@ -343,7 +352,8 @@ namespace Network.NetworkHost
                 Rotation = state.Rotation,
                 IsDead = state.IsDead,
                 InputX = state.InputX,
-                InputY = state.InputY
+                InputY = state.InputY,
+                Speed = state.Speed
             };
         }
 
@@ -396,11 +406,11 @@ namespace Network.NetworkHost
             }
 
             var rotationRadians = state.Rotation * (MathF.PI / 180f);
-            var forwardX = MathF.Cos(rotationRadians);
-            var forwardZ = MathF.Sin(rotationRadians);
-            state.VelocityX = forwardX * (throttleInput * configuration.MoveSpeed);
+            var forwardX = MathF.Sin(rotationRadians);
+            var forwardZ = MathF.Cos(rotationRadians);
+            state.VelocityX = forwardX * (throttleInput * state.Speed);
             state.VelocityY = 0f;
-            state.VelocityZ = forwardZ * (throttleInput * configuration.MoveSpeed);
+            state.VelocityZ = forwardZ * (throttleInput * state.Speed);
 
             var candidatePositionX = state.PositionX + (state.VelocityX * deltaSeconds);
             var candidatePositionY = state.PositionY + (state.VelocityY * deltaSeconds);

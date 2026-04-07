@@ -185,7 +185,7 @@ namespace Network.NetworkHost
             }
 
             if (!movementCoordinator.TryGetState(acceptedPeer, out attackerState) &&
-                !movementCoordinator.EnsureState(acceptedPeer, input.PlayerId, out attackerState))
+                !movementCoordinator.EnsureState(acceptedPeer, input.PlayerId, null, out attackerState))
             {
                 return false;
             }

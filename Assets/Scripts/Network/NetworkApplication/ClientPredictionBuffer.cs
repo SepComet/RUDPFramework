@@ -40,6 +40,15 @@ namespace Network.NetworkApplication
 
         public IReadOnlyList<PredictedMoveStep> PendingInputs => pendingInputs;
 
+        /// <summary>
+        /// 清空所有 pending inputs。 
+        /// 用于 Reconcile 后清理已重放的输入，避免它们的时间被继续累积。 
+        /// </summary>
+        public void ClearPendingInputs()
+        {
+            pendingInputs.Clear();
+        }
+
         public void Record(MoveInput input)
         {
             if (input == null)
@@ -63,7 +72,8 @@ namespace Network.NetworkApplication
             }
 
             var latest = pendingInputs[^1];
-            pendingInputs[^1] = new PredictedMoveStep(latest.Input, latest.SimulatedDurationSeconds + simulatedDurationSeconds);
+            pendingInputs[^1] =
+                new PredictedMoveStep(latest.Input, latest.SimulatedDurationSeconds + simulatedDurationSeconds);
         }
 
         /// <summary>
@@ -79,10 +89,12 @@ namespace Network.NetworkApplication
             }
 
             var latest = pendingInputs[^1];
-            pendingInputs[^1] = new PredictedMoveStep(latest.Input, latest.SimulatedDurationSeconds + elapsedSinceLastState);
+            pendingInputs[^1] =
+                new PredictedMoveStep(latest.Input, latest.SimulatedDurationSeconds + elapsedSinceLastState);
         }
 
-        public bool TryApplyAuthoritativeState(PlayerState state, float currentTime, out IReadOnlyList<PredictedMoveStep> replayInputs)
+        public bool TryApplyAuthoritativeState(PlayerState state, float currentTime,
+            out IReadOnlyList<PredictedMoveStep> replayInputs)
         {
             if (state == null)
             {
@@ -104,6 +116,21 @@ namespace Network.NetworkApplication
             // starts from this authoritative state's arrival time.
             _lastAuthoritativeStateTime = currentTime;
             return true;
+        }
+
+        /// <summary>
+        /// 只清除已确认的旧输入，不触发 replay，不更新 LastAuthoritativeTick。
+        /// 用于在校正被禁用时，保持 predictionBuffer 的输入与服务端同步。
+        /// </summary>
+        public void PruneAcknowledgedInputs(long acknowledgedMoveTick)
+        {
+            if (acknowledgedMoveTick <= 0)
+            {
+                return;
+            }
+
+            pendingInputs.RemoveAll(input => input.Input.Tick <= acknowledgedMoveTick);
+            LastAcknowledgedMoveTick = acknowledgedMoveTick;
         }
     }
 }

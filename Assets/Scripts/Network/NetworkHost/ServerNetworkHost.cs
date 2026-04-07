@@ -71,6 +71,8 @@ namespace Network.NetworkHost
 
         public MultiSessionManager SessionCoordinator { get; }
 
+        public float AuthoritativeMoveSpeed => authoritativeMovementCoordinator.MoveSpeed;
+
         public TimeSpan AuthoritativeMovementCadence => authoritativeMovementCoordinator.SimulationInterval;
 
         public IReadOnlyList<ManagedNetworkSession> ManagedSessions => SessionCoordinator.Sessions;
@@ -268,14 +270,21 @@ namespace Network.NetworkHost
         public void NotifyLoginSucceeded(IPEndPoint remoteEndPoint)
         {
             SessionCoordinator.NotifyLoginSucceeded(remoteEndPoint);
-            BootstrapAuthoritativeMovementState(remoteEndPoint);
+            BootstrapAuthoritativeMovementState(remoteEndPoint, null);
             PublishMetricsSessionSnapshot(remoteEndPoint);
         }
 
         public void NotifyLoginSucceeded(IPEndPoint remoteEndPoint, string playerId)
         {
+            NotifyLoginSucceeded(remoteEndPoint, playerId, null);
+        }
+
+        public void NotifyLoginSucceeded(IPEndPoint remoteEndPoint, string playerId, float? speed)
+        {
             RememberPlayerId(remoteEndPoint, playerId);
-            NotifyLoginSucceeded(remoteEndPoint);
+            SessionCoordinator.NotifyLoginSucceeded(remoteEndPoint);
+            BootstrapAuthoritativeMovementState(remoteEndPoint, speed);
+            PublishMetricsSessionSnapshot(remoteEndPoint);
         }
 
         public void NotifyLoginFailed(IPEndPoint remoteEndPoint, string reason = null)
@@ -363,14 +372,14 @@ namespace Network.NetworkHost
             }
         }
 
-        private void BootstrapAuthoritativeMovementState(IPEndPoint remoteEndPoint)
+        private void BootstrapAuthoritativeMovementState(IPEndPoint remoteEndPoint, float? speed)
         {
             if (!TryGetKnownPlayerId(remoteEndPoint, out var playerId))
             {
                 return;
             }
 
-            authoritativeMovementCoordinator.EnsureState(remoteEndPoint, playerId, out _);
+            authoritativeMovementCoordinator.EnsureState(remoteEndPoint, playerId, speed, out _);
         }
 
         private void RememberPlayerId(IPEndPoint remoteEndPoint, string playerId)

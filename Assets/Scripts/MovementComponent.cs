@@ -4,116 +4,23 @@ using Network.NetworkApplication;
 using UnityEngine;
 using Vector3 = UnityEngine.Vector3;
 
-public static class ClientGameplayInputFlow
-{
-    public static bool HasPlanarInput(Vector3 input)
-    {
-        return new Vector2(input.x, input.z).sqrMagnitude > 0f;
-    }
-
-    public static bool TryCreateMoveInput(string playerId, long tick, Vector3 input, bool stopMessagePending, out MoveInput message)
-    {
-        if (!HasPlanarInput(input) && !stopMessagePending)
-        {
-            message = null;
-            return false;
-        }
-
-        message = new MoveInput
-        {
-            PlayerId = playerId,
-            Tick = tick,
-            TurnInput = -input.x,
-            ThrottleInput = input.z
-        };
-        return true;
-    }
-
-    public static bool TryCreateShootInput(
-        string playerId,
-        long tick,
-        bool fireTriggered,
-        Vector3 aimDirection,
-        out ShootInput message,
-        string targetId = "")
-    {
-        if (!fireTriggered)
-        {
-            message = null;
-            return false;
-        }
-
-        message = CreateShootInput(playerId, tick, aimDirection, targetId);
-        return true;
-    }
-
-    public static ShootInput CreateShootInput(string playerId, long tick, Vector3 aimDirection, string targetId = "")
-    {
-        var planarDirection = new Vector3(aimDirection.x, 0f, aimDirection.z);
-        if (planarDirection.sqrMagnitude <= 0f)
-        {
-            planarDirection = Vector3.forward;
-        }
-        else
-        {
-            planarDirection.Normalize();
-        }
-
-        return new ShootInput
-        {
-            PlayerId = playerId,
-            Tick = tick,
-            DirX = planarDirection.x,
-            DirY = planarDirection.z,
-            TargetId = targetId ?? string.Empty
-        };
-    }
-
-    public static void SendShootInput(
-        MessageManager messageManager,
-        string playerId,
-        long tick,
-        Vector3 aimDirection,
-        string targetId = "")
-    {
-        if (messageManager == null)
-        {
-            throw new System.ArgumentNullException(nameof(messageManager));
-        }
-
-        SendShootInput(messageManager, CreateShootInput(playerId, tick, aimDirection, targetId));
-    }
-
-    public static void SendShootInput(MessageManager messageManager, ShootInput message)
-    {
-        if (messageManager == null)
-        {
-            throw new System.ArgumentNullException(nameof(messageManager));
-        }
-
-        if (message == null)
-        {
-            throw new System.ArgumentNullException(nameof(message));
-        }
-
-        messageManager.SendMessage(message, MessageType.ShootInput);
-    }
-}
-
 public class MovementComponent : MonoBehaviour
 {
-    [SerializeField] private float _sendInterval = 0.05f;
+    [SerializeField] private int _speed = 2;
+    [SerializeField] private Rigidbody _rigid;
+    [SerializeField] private InputComponent _inputComponent;
+
     private Player _master;
     private const float TurnSpeedDegreesPerSecond = 180f;
+
+    // 测试时设为 false，可接收服务器状态日志但不应用校正
+    [SerializeField] private bool _applyServerCorrection = true;
     private const float UnityYawOffsetDegrees = 90f;
 
     // Server authoritative movement cadence used for replay substepping.
     // This matches ServerAuthoritativeMovementConfiguration.SimulationInterval (50ms).
     private const float kServerSimulationStepSeconds = 0.05f;
 
-    private int _speed = 2;
-    [SerializeField] private Rigidbody _rigid;
-    private float _lastSendTime = 0;
     private bool _isControlled = false;
 
     private Vector3 _serverPosition;
@@ -124,14 +31,12 @@ public class MovementComponent : MonoBehaviour
     public long Tick { get; private set; } = 0;
     private long _startTickOffset = 0;
     private long _currentTickOffset = 0;
+    private float _simulationAccumulator = 0f;
     private readonly ClientPredictionBuffer _predictionBuffer = new ClientPredictionBuffer();
 
     private readonly RemotePlayerSnapshotInterpolator _remoteSnapshotInterpolator = new();
     [SerializeField] private float _lerpRate = 0.1f;
-    private Vector3 _cachedMoveInput;
     private Vector3 _lastAimDirection = Vector3.forward;
-    private bool _wasMovingLastFrame;
-    private bool _stopMessagePending;
 
     public void Init(bool isControlled, Player master, ClientMovementBootstrap bootstrap)
     {
@@ -148,47 +53,58 @@ public class MovementComponent : MonoBehaviour
         _rigid.isKinematic = !isControlled;
         _rigid.velocity = Vector3.zero;
         _rigid.angularVelocity = Vector3.zero;
-        if (serverTick != 0 && _isControlled && MainUI.Instance != null) MainUI.Instance.OnStartTickOffsetChanged(serverTick);
+
+        // 设置 InputComponent 的 playerId
+        if (_inputComponent != null)
+        {
+            _inputComponent.InjectPlayerId(master.PlayerId);
+        }
+
+        if (serverTick != 0 && _isControlled && MainUI.Instance != null)
+            MainUI.Instance.OnStartTickOffsetChanged(serverTick);
     }
 
     private void Update()
     {
         if (_isControlled)
         {
-            _cachedMoveInput = CaptureMovement();
-            var hasMovement = ClientGameplayInputFlow.HasPlanarInput(_cachedMoveInput);
-            if (hasMovement)
+            if (_inputComponent != null)
             {
-                _stopMessagePending = false;
-            }
-            else if (_wasMovingLastFrame)
-            {
-                _stopMessagePending = true;
-            }
-
-            _wasMovingLastFrame = hasMovement;
-
-            var shootInput = CaptureShootInput();
-            if (shootInput != null)
-            {
-                NetworkManager.Instance.SendShootInput(shootInput);
-            }
-
-            if (Time.time - _lastSendTime > _sendInterval)
-            {
-                if (ClientGameplayInputFlow.TryCreateMoveInput(_master.PlayerId, Tick, _cachedMoveInput, _stopMessagePending, out var moveInput))
-                {
-                    NetworkManager.Instance.SendMoveInput(moveInput);
-                    _predictionBuffer.Record(moveInput);
-                    _stopMessagePending = false;
-                }
-
-                _lastSendTime = Time.time;
-                Tick++;
-
-                MainUI.Instance.OnClientTickChanged(Tick);
+                MainUI.Instance.OnClientTickChanged(_inputComponent.CurrentTick);
             }
         }
+    }
+
+    private void Start()
+    {
+        // 订阅 InputComponent 的事件来记录预测输入
+        if (_inputComponent != null)
+        {
+            _inputComponent.OnMoveInputCreated += HandleMoveInputCreated;
+        }
+    }
+
+    private void OnDestroy()
+    {
+        if (_inputComponent != null)
+        {
+            _inputComponent.OnMoveInputCreated -= HandleMoveInputCreated;
+        }
+    }
+
+    private void HandleMoveInputCreated(MoveInput moveInput)
+    {
+        // 记录到预测缓冲区，用于后续的服务器状态校正和回放
+        _predictionBuffer.Record(moveInput);
+    }
+
+    /// <summary>
+    /// 测试用：设置是否应用服务器状态校正（默认 true）
+    /// 设为 false 时只打印服务器状态日志，不影响本地位置
+    /// </summary>
+    public void SetApplyServerCorrection(bool apply)
+    {
+        _applyServerCorrection = apply;
     }
 
     private void FixedUpdate()
@@ -206,10 +122,17 @@ public class MovementComponent : MonoBehaviour
                 _hasServerState = false;
             }
 
-            Simulate(_cachedMoveInput);
-            // Use actual elapsed wall-clock time since last authoritative state,
-            // decoupled from FixedUpdate cadence, to match server's 20Hz cadence.
-            _predictionBuffer.AccumulateWithElapsedTime(Time.time - _predictionBuffer.LastAuthoritativeStateTime);
+            // 累积时间，按服务端 50ms 步长进行模拟
+            _simulationAccumulator += Time.fixedDeltaTime;
+            while (_simulationAccumulator >= kServerSimulationStepSeconds)
+            {
+                // 使用最近发送的 MoveInput（来自 predictionBuffer）而非实时输入，
+                // 确保客户端与服务端的输入时序一致
+                Simulate(GetLatestPredictedInput());
+                _simulationAccumulator -= kServerSimulationStepSeconds;
+            }
+
+            // 注意：模拟时间现在在 Simulate() 内部通过 AccumulateLatest 累加
         }
         else
         {
@@ -238,7 +161,8 @@ public class MovementComponent : MonoBehaviour
             predictedRotation,
             snapshot.Position,
             snapshot.RotationQuaternion,
-            new ControlledPlayerCorrectionSettings(kServerSimulationStepSeconds, _speed, TurnSpeedDegreesPerSecond, snapDistanceMultiplier: 5f),
+            new ControlledPlayerCorrectionSettings(kServerSimulationStepSeconds, _speed, TurnSpeedDegreesPerSecond,
+                snapDistanceMultiplier: 5f),
             _activeVisualCorrection);
 
         _activeVisualCorrection = correction.NextState;
@@ -246,7 +170,17 @@ public class MovementComponent : MonoBehaviour
         _rigid.rotation = correction.Rotation;
         _rigid.velocity = correction.UsedHardSnap ? snapshot.Velocity : Vector3.zero;
         _rigid.angularVelocity = Vector3.zero;
-        ReplayPendingInputs(replayInputs);
+
+        // 位置已被校正到服务器位置，不需要再 ReplayPendingInputs
+        // 因为 pendingInputs 中的 SimulatedDurationSeconds 是累积的模拟时间，
+        // 如果用来 replay 会导致多余的移动。清空 pendingInputs 让客户端从校正位置重新开始
+        if (replayInputs.Count > 0)
+        {
+            _predictionBuffer.ClearPendingInputs();
+        }
+
+        // 清零 accumulator 防止 FixedUpdate 中再次 Simulate 导致重复移动
+        _simulationAccumulator = 0f;
 
         if (MainUI.Instance != null)
         {
@@ -259,23 +193,6 @@ public class MovementComponent : MonoBehaviour
         }
     }
 
-    private Vector3 CaptureMovement()
-    {
-        return new Vector3(Input.GetAxisRaw("Horizontal"), 0f, Input.GetAxisRaw("Vertical"));
-    }
-
-    private ShootInput CaptureShootInput()
-    {
-        return ClientGameplayInputFlow.TryCreateShootInput(
-            _master.PlayerId,
-            Tick,
-            Input.GetMouseButtonDown(0),
-            ResolveAimDirection(),
-            out var shootInput)
-            ? shootInput
-            : null;
-    }
-
     private Vector3 ResolveAimDirection()
     {
         var planarForward = Vector3.ProjectOnPlane(_rigid.transform.forward, Vector3.up);
@@ -285,18 +202,29 @@ public class MovementComponent : MonoBehaviour
             return planarForward;
         }
 
-        return ClientGameplayInputFlow.HasPlanarInput(_lastAimDirection) ? _lastAimDirection : ResolveHeadingForward(UnityYawToHeading(_rigid.rotation.eulerAngles.y));
+        return ClientGameplayInputFlow.HasPlanarInput(_lastAimDirection)
+            ? _lastAimDirection
+            : ResolveHeadingForward(UnityYawToHeading(_rigid.rotation.eulerAngles.y));
     }
 
     private void Simulate(Vector3 input)
     {
-        ApplyTankMovement(-input.x, input.z, Time.fixedDeltaTime);
+        ApplyTankMovement(-input.x, input.z, kServerSimulationStepSeconds);
+
+        // 每次 Simulate 后累加模拟时间（用于 Reconcile 时的重放）
+        _predictionBuffer.AccumulateLatest(kServerSimulationStepSeconds);
+
         if (_isControlled)
         {
             if (MainUI.Instance != null)
             {
                 MainUI.Instance.OnClientPosChanged(_rigid.position);
             }
+
+            // 打印客户端当前状态，用于与服务端状态对比
+            Debug.Log($"[ClientState] Tick={Tick} " +
+                      $"Pos=({_rigid.position.x:F3}, {_rigid.position.y:F3}, {_rigid.position.z:F3}) " +
+                      $"Rot={_rigid.rotation.eulerAngles.y:F2}");
         }
     }
 
@@ -305,7 +233,32 @@ public class MovementComponent : MonoBehaviour
         if (_isControlled)
         {
             _lastAuthoritativeState = snapshot;
-            _hasServerState = true;
+
+            // 打印服务端状态，用于与客户端计算结果对比
+            Debug.Log($"[ServerState] Tick={snapshot.SourceState.Tick} " +
+                      $"Pos=({snapshot.SourceState.Position.X:F3}, {snapshot.SourceState.Position.Y:F3}, {snapshot.SourceState.Position.Z:F3}) " +
+                      $"Rot={snapshot.SourceState.Rotation:F2} " +
+                      $"Vel=({snapshot.SourceState.Velocity.X:F3}, {snapshot.SourceState.Velocity.Y:F3}, {snapshot.SourceState.Velocity.Z:F3}) " +
+                      $"AckTick={snapshot.AcknowledgedMoveTick}");
+
+            // 清理已确认的旧输入，确保客户端使用正确的（已确认的）输入
+            var pendingBefore = _predictionBuffer.PendingInputs.Count;
+            _predictionBuffer.PruneAcknowledgedInputs(snapshot.AcknowledgedMoveTick);
+            var pendingAfter = _predictionBuffer.PendingInputs.Count;
+            Debug.Log(
+                $"[Prune] AckTick={snapshot.AcknowledgedMoveTick} removed {pendingBefore - pendingAfter}/{pendingBefore} inputs, remaining={pendingAfter}");
+
+            // 收到服务器状态后，必须清空 pendingInputs
+            // 因为 pendingInputs 中的 SimulatedDurationSeconds 是累积的模拟时间，
+            // 如果不清理，客户端会继续用这些输入移动（测试模式下位置不被服务器校正）
+            _predictionBuffer.ClearPendingInputs();
+            _simulationAccumulator = 0f;
+
+            // 只有开启校正时才设置 _hasServerState，否则只打印日志不应用
+            if (_applyServerCorrection)
+            {
+                _hasServerState = true;
+            }
         }
         else
         {
@@ -324,6 +277,28 @@ public class MovementComponent : MonoBehaviour
                 MainUI.Instance.OnServerTickChanged(serverTick);
             }
         }
+    }
+
+    /// <summary>
+    /// 获取最近发送的 MoveInput，用于与服务器输入时序对齐。
+    /// 如果没有记录的输入，返回零向量（停止状态）。
+    /// </summary>
+    private Vector3 GetLatestPredictedInput()
+    {
+        var pending = _predictionBuffer.PendingInputs;
+        if (pending.Count == 0)
+        {
+            Debug.Log("[MoveInput] No pending inputs, using zero (stop)");
+            return Vector3.zero;
+        }
+
+        var latest = pending[^1];
+        Debug.Log(
+            $"[MoveInput] Using tick={latest.Input.Tick} TurnInput={latest.Input.TurnInput} ThrottleInput={latest.Input.ThrottleInput} ({pending.Count} pending)");
+        // MoveInput 的 TurnInput/ThrottleInput 转回 Unity 的 x/z 格式
+        // 注意 TurnInput 在 MoveInput 里是正数=右，正数=-input.x=左（需要取反）
+        // ThrottleInput 在 MoveInput 里正数=前进，正数=input.z=前
+        return new Vector3(-latest.Input.TurnInput, 0f, latest.Input.ThrottleInput);
     }
 
     private void ReplayPendingInputs(IReadOnlyList<PredictedMoveStep> replayInputs)
@@ -363,13 +338,19 @@ public class MovementComponent : MonoBehaviour
 
         var clampedTurnInput = Mathf.Clamp(turnInput, -1f, 1f);
         var clampedThrottleInput = Mathf.Clamp(throttleInput, -1f, 1f);
-        var heading = NormalizeDegrees(UnityYawToHeading(_rigid.rotation.eulerAngles.y) + (clampedTurnInput * TurnSpeedDegreesPerSecond * deltaTime));
+        var heading = NormalizeDegrees(UnityYawToHeading(_rigid.rotation.eulerAngles.y) +
+                                       (clampedTurnInput * TurnSpeedDegreesPerSecond * deltaTime));
         _rigid.rotation = Quaternion.Euler(0f, HeadingToUnityYaw(heading), 0f);
 
         var forward = ResolveHeadingForward(heading);
         var velocity = forward * (clampedThrottleInput * _speed);
         _rigid.velocity = velocity;
         _rigid.position += velocity * deltaTime;
+
+        // 调试日志：打印每步计算细节
+        Debug.Log($"[MoveStep] _speed={_speed} deltaTime={deltaTime:F4} throttle={clampedThrottleInput} " +
+                  $"heading={heading:F2} velocity=({velocity.x:F3}, {velocity.y:F3}, {velocity.z:F3}) " +
+                  $"pos=({_rigid.position.x:F3}, {_rigid.position.y:F3}, {_rigid.position.z:F3})");
     }
 
     private static Vector3 ResolveHeadingForward(float headingDegrees)

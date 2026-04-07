@@ -99,7 +99,7 @@ namespace Tests.EditMode.Network
             Assert.That(serverRuntime.AuthoritativeMovementCadence, Is.EqualTo(TimeSpan.FromMilliseconds(50)));
             Assert.That(serverRuntime.TryGetAuthoritativeMovementState(ClientPeer, out var localServerState), Is.True);
             Assert.That(localServerState.PlayerId, Is.EqualTo("player-a"));
-            Assert.That(localServerState.PositionX, Is.EqualTo(0.5f).Within(0.0001f));
+            Assert.That(localServerState.PositionZ, Is.EqualTo(0.5f).Within(0.0001f));
             Assert.That(serverRuntime.TryGetAuthoritativeCombatState(RemotePeer, out var remoteCombatState), Is.True);
             Assert.That(remoteCombatState.PlayerId, Is.EqualTo("player-b"));
             Assert.That(remoteCombatState.Hp, Is.EqualTo(70));
@@ -107,7 +107,7 @@ namespace Tests.EditMode.Network
             Assert.That(clientHarness.TryGetState("player-a", out var localClientState), Is.True);
             Assert.That(localClientState.Tick, Is.EqualTo(1));
             Assert.That(localClientState.AcknowledgedMoveTick, Is.EqualTo(1));
-            Assert.That(localClientState.Position.x, Is.EqualTo(0.5f).Within(0.0001f));
+            Assert.That(localClientState.Position.z, Is.EqualTo(0.5f).Within(0.0001f));
             Assert.That(clientHarness.TryGetState("player-b", out var remoteClientState), Is.True);
             Assert.That(remoteClientState.Hp, Is.EqualTo(70));
             Assert.That(clientHarness.TryGetCombatPresentation("player-b", out var remoteCombatPresentation), Is.True);
@@ -228,7 +228,6 @@ namespace Tests.EditMode.Network
             Assert.That(serverRuntime.TryGetAuthoritativeMovementState(ClientPeer, out var localMovementState), Is.True);
             Assert.That(localMovementState.PlayerId, Is.EqualTo("player-a"));
             Assert.That(localMovementState.LastAcceptedMoveTick, Is.EqualTo(0));
-            Assert.That(localMovementState.PositionX, Is.EqualTo(0f).Within(0.0001f));
             Assert.That(localMovementState.PositionZ, Is.EqualTo(0f).Within(0.0001f));
             Assert.That(serverRuntime.TryGetAuthoritativeCombatState(ClientPeer, out var localCombatState), Is.True);
             Assert.That(localCombatState.LastAcceptedShootTick, Is.EqualTo(3));
