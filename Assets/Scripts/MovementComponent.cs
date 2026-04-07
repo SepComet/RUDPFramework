@@ -126,6 +126,17 @@ public class MovementComponent : MonoBehaviour
             _simulationAccumulator += Time.fixedDeltaTime;
             while (_simulationAccumulator >= kServerSimulationStepSeconds)
             {
+                var pendingCount = _predictionBuffer.PendingInputs.Count;
+                if (pendingCount == 0)
+                {
+                    // 没有待处理的输入，清零累积时间，跳出循环
+                    _simulationAccumulator = 0f;
+                    break;
+                }
+
+                Debug.Log(
+                    $"[SimulateLoop] frame={Time.frameCount} accum={_simulationAccumulator:F4} pendingCount={pendingCount}");
+
                 // 使用最近发送的 MoveInput（来自 predictionBuffer）而非实时输入，
                 // 确保客户端与服务端的输入时序一致
                 Simulate(GetLatestPredictedInput());
@@ -209,7 +220,11 @@ public class MovementComponent : MonoBehaviour
 
     private void Simulate(Vector3 input)
     {
+        Debug.Log(
+            $"[Simulate] frame={Time.frameCount} input=({input.x:F2},{input.z:F2}) accum={_simulationAccumulator:F4}");
         ApplyTankMovement(-input.x, input.z, kServerSimulationStepSeconds);
+
+        //ApplyTankMovement(-input.x, input.z, kServerSimulationStepSeconds);
 
         // 每次 Simulate 后累加模拟时间（用于 Reconcile 时的重放）
         _predictionBuffer.AccumulateLatest(kServerSimulationStepSeconds);
@@ -344,8 +359,10 @@ public class MovementComponent : MonoBehaviour
 
         var forward = ResolveHeadingForward(heading);
         var velocity = forward * (clampedThrottleInput * _speed);
-        _rigid.velocity = velocity;
-        _rigid.position += velocity * deltaTime;
+        Vector3 targetPos = _rigid.position + velocity * deltaTime;
+        _rigid.MovePosition(targetPos);
+        // _rigid.velocity = velocity;
+        // _rigid.position += velocity * deltaTime;
 
         // 调试日志：打印每步计算细节
         Debug.Log($"[MoveStep] _speed={_speed} deltaTime={deltaTime:F4} throttle={clampedThrottleInput} " +

@@ -492,7 +492,7 @@ MonoBehaviour:
   _speed: 2
   _rigid: {fileID: -1362768914916555191}
   _inputComponent: {fileID: 8938569698484985372}
-  _applyServerCorrection: 0
+  _applyServerCorrection: 1
   _lerpRate: 0.1
 --- !u!114 &8938569698484985372
 MonoBehaviour:
@@ -508,7 +508,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   _playerId: 1234
   _sendInterval: 0.05
-  _useNetwork: 1
 --- !u!54 &-1362768914916555191
 Rigidbody:
   m_ObjectHideFlags: 0
