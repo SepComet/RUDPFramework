@@ -284,6 +284,7 @@ namespace Network.NetworkHost
             RememberPlayerId(remoteEndPoint, playerId);
             SessionCoordinator.NotifyLoginSucceeded(remoteEndPoint);
             BootstrapAuthoritativeMovementState(remoteEndPoint, speed);
+            BootstrapAuthoritativeCombatState(remoteEndPoint, playerId);
             PublishMetricsSessionSnapshot(remoteEndPoint);
         }
 
@@ -380,6 +381,21 @@ namespace Network.NetworkHost
             }
 
             authoritativeMovementCoordinator.EnsureState(remoteEndPoint, playerId, speed, out _);
+        }
+
+        private void BootstrapAuthoritativeCombatState(IPEndPoint remoteEndPoint, string playerId)
+        {
+            if (!TryGetKnownPlayerId(remoteEndPoint, out var resolvedPlayerId))
+            {
+                return;
+            }
+
+            if (!authoritativeMovementCoordinator.TryGetState(remoteEndPoint, out var movementState))
+            {
+                return;
+            }
+
+            authoritativeCombatCoordinator.BootstrapState(remoteEndPoint, resolvedPlayerId, movementState.Hp, movementState.IsDead);
         }
 
         private void RememberPlayerId(IPEndPoint remoteEndPoint, string playerId)

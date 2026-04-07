@@ -41,7 +41,7 @@ namespace Network.NetworkApplication
                 case MessageType.MoveInput:
                 {
                     var input = MoveInput.Parser.ParseFrom(payload);
-                    streamKey = $"input:{Normalize(sender)}:{input.PlayerId}";
+                    streamKey = $"input:{input.PlayerId}";
                     sequence = input.Tick;
                     return true;
                 }

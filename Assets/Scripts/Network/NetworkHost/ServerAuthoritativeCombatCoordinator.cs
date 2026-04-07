@@ -42,6 +42,29 @@ namespace Network.NetworkHost
             }
         }
 
+        public void BootstrapState(IPEndPoint remoteEndPoint, string playerId, int hp, bool isDead)
+        {
+            if (remoteEndPoint == null || string.IsNullOrWhiteSpace(playerId))
+            {
+                return;
+            }
+
+            var key = Normalize(remoteEndPoint).ToString();
+            lock (gate)
+            {
+                if (statesByPeer.ContainsKey(key))
+                {
+                    return;
+                }
+
+                statesByPeer.Add(key, new ServerAuthoritativeCombatState(
+                    Normalize(remoteEndPoint),
+                    playerId,
+                    hp,
+                    isDead));
+            }
+        }
+
         public Task HandleShootInputAsync(byte[] payload, IPEndPoint sender)
         {
             if (payload == null || sender == null)
@@ -95,7 +118,7 @@ namespace Network.NetworkHost
                 EventType = CombatEventType.Hit,
                 AttackerId = attackerState.PlayerId,
                 TargetId = targetState.PlayerId,
-                Damage = 0,
+                Damage = configuration.DamagePerShot,
                 HitPosition = hitPosition
             }, MessageType.CombatEvent);
 
