@@ -174,6 +174,11 @@ namespace Network.NetworkHost
                         IntegrateState(state, configuration.SimulationInterval);
                     }
 
+                    foreach (var state in statesByPeer.Values)
+                    {
+                        state.HasInputThisFrame = false;
+                    }
+
                     accumulatedBroadcastTime += configuration.SimulationInterval;
                     while (accumulatedBroadcastTime >= configuration.BroadcastInterval)
                     {
@@ -362,6 +367,7 @@ namespace Network.NetworkHost
             state.LastAcceptedMoveTick = input.Tick;
             state.InputX = ClampInput(input.TurnInput);
             state.InputY = ClampInput(input.ThrottleInput);
+            state.HasInputThisFrame = true;
 
             if (state.InputY == 0f)
             {
@@ -384,6 +390,16 @@ namespace Network.NetworkHost
             var deltaSeconds = (float)elapsed.TotalSeconds;
             if (deltaSeconds <= 0f)
             {
+                state.VelocityX = 0f;
+                state.VelocityY = 0f;
+                state.VelocityZ = 0f;
+                return;
+            }
+
+            if (!state.HasInputThisFrame)
+            {
+                state.InputX = 0f;
+                state.InputY = 0f;
                 state.VelocityX = 0f;
                 state.VelocityY = 0f;
                 state.VelocityZ = 0f;

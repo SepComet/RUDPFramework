@@ -23,7 +23,7 @@ public static class ClientGameplayInputFlow
         {
             PlayerId = playerId,
             Tick = tick,
-            TurnInput = -input.x,
+            TurnInput = input.x,
             ThrottleInput = input.z
         };
         return true;

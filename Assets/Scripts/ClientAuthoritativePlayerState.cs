@@ -121,7 +121,7 @@ public sealed class ClientAuthoritativePlayerStateSnapshot
 
     public int Hp { get; }
 
-    public Quaternion RotationQuaternion => Quaternion.Euler(0f, NormalizeDegrees(90f - Rotation), 0f);
+    public Quaternion RotationQuaternion => Quaternion.Euler(0f, NormalizeDegrees(Rotation), 0f);
 
     private static float NormalizeDegrees(float degrees)
     {

@@ -46,6 +46,8 @@ namespace Network.NetworkHost
 
         public float InputY { get; internal set; }
 
+        public bool HasInputThisFrame { get; internal set; }
+
         public float Speed { get; internal set; }
     }
 }

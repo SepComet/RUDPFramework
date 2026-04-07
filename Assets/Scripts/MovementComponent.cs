@@ -222,7 +222,7 @@ public class MovementComponent : MonoBehaviour
     {
         Debug.Log(
             $"[Simulate] frame={Time.frameCount} input=({input.x:F2},{input.z:F2}) accum={_simulationAccumulator:F4}");
-        ApplyTankMovement(-input.x, input.z, kServerSimulationStepSeconds);
+        ApplyTankMovement(input.x, input.z, kServerSimulationStepSeconds);
 
         //ApplyTankMovement(-input.x, input.z, kServerSimulationStepSeconds);
 
