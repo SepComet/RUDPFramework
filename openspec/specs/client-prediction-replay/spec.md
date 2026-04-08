@@ -8,7 +8,7 @@ Define the contract that client-side replay of pending movement inputs after aut
 
 ### Requirement: Replay uses fixed-step accumulation matching server cadence
 
-The controlled-client prediction replay path SHALL consume each pending `PredictedMoveStep` by applying its input in fixed-duration substeps equal to the server authoritative movement cadence, regardless of the step's total `SimulatedDurationSeconds`. **Forward prediction accumulation SHALL also use the same server authoritative movement cadence as the unit of accumulation, ensuring forward accumulated duration and replay duration are derived from the same cadence constant.** The replay accumulation shape MUST be identical to the live `FixedUpdate` prediction path for the same input values.
+The controlled-client prediction replay path SHALL consume each pending `PredictedMoveStep` by applying its input in fixed-duration substeps equal to the server authoritative movement cadence, regardless of the step's total `SimulatedDurationSeconds`. Forward prediction accumulation SHALL also use the same server authoritative movement cadence as the unit of accumulation, and replaying a step MUST NOT remove that step from the pending-input buffer unless the server has acknowledged its tick. The replay accumulation shape MUST be identical to the live `FixedUpdate` prediction path for the same input values.
 
 #### Scenario: Replay produces same trajectory as live prediction for steady input
 - **WHEN** the client replays a `PredictedMoveStep` with turn=0, throttle=1, duration=0.15s using a 0.05s server cadence
@@ -25,12 +25,23 @@ The controlled-client prediction replay path SHALL consume each pending `Predict
 - **THEN** the replay applies 0.05s + 0.05s + 0.02s substeps sequentially
 - **THEN** no remaining duration is lost or double-counted
 
+#### Scenario: Replay preserves unacknowledged inputs for later authoritative rebuilds
+- **WHEN** the client replays pending inputs after accepting an authoritative state that acknowledges ticks through `N`
+- **THEN** only steps with tick less than or equal to `N` are removed from the pending-input buffer
+- **THEN** replayed steps with tick greater than `N` remain available for later replay against a newer authoritative baseline
+- **THEN** the pending-input buffer still exposes those unacknowledged steps after replay completes
+
 ### Requirement: Replay trajectory determinism is verifiable
 
-The client prediction system SHALL provide a deterministic way to verify that replay and live prediction produce identical trajectories for a given input sequence, enabling regression coverage.
+The client prediction system SHALL provide a deterministic way to verify that replay and live prediction produce identical trajectories for a given input sequence, enabling regression coverage. The verification path MUST also support repeated authoritative rebuilds while the same unacknowledged input sequence remains pending.
 
 #### Scenario: Replay and live prediction produce identical results
 - **WHEN** a controlled client records a `MoveInput` sequence during live play
 - **AND** the client triggers reconciliation and replays those same inputs
 - **THEN** the final predicted pose after replay equals the predicted pose that would result from live FixedUpdate simulation for the same input sequence
 - **THEN** the result is stable across multiple replays of the same input sequence
+
+#### Scenario: Repeated rebuilds remain deterministic while inputs stay unacknowledged
+- **WHEN** the controlled client accepts multiple increasing authoritative snapshots while the same later input ticks remain unacknowledged
+- **THEN** replaying the remaining unacknowledged input sequence against each accepted baseline produces deterministic predicted results for that baseline
+- **THEN** the test harness can verify replay correctness without requiring those inputs to be consumed from the buffer

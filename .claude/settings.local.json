@@ -9,7 +9,16 @@
       "Bash(dotnet Temp/Bin/Debug/Network.EditMode.Tests/Network.EditMode.Tests.dll)",
       "Bash(openspec list:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(dotnet-script ../.claude/openspec/opsx.ts new change \"local-player-prediction-reconciliation\")",
+      "Bash(npx --yes @anthropic-ai/opsx-cli status)",
+      "Bash(npx openspec@latest --version)",
+      "Bash(/c/Users/September/AppData/Roaming/npm/openspec --version)",
+      "Bash(/c/Users/September/AppData/Roaming/npm/openspec new:*)",
+      "Bash(/c/Users/September/AppData/Roaming/npm/openspec status:*)",
+      "Bash(/c/Users/September/AppData/Roaming/npm/openspec instructions:*)",
+      "Bash(grep -l \"reconcil\" openspec/specs/*/spec.md)",
+      "Bash(/c/Users/September/AppData/Roaming/npm/openspec list:*)"
     ]
   },
   "outputStyle": "default"

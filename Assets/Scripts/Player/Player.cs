@@ -12,9 +12,25 @@ public class Player : MonoBehaviour
     [SerializeField] private Material[] _materials;
     [SerializeField] private Camera _camera;
     [SerializeField] private MovementComponent _movement;
+    [SerializeField] private MovementResolverComponent _movementResolver;
     [SerializeField] private PlayerUI _playerUI;
     [SerializeField] private bool _isControlled;
     private readonly ClientAuthoritativePlayerState _authoritativeState = new();
+
+    private void Awake()
+    {
+        _movement ??= GetComponent<MovementComponent>();
+        if (_movement == null)
+        {
+            _movement = gameObject.AddComponent<MovementComponent>();
+        }
+
+        _movementResolver ??= GetComponent<MovementResolverComponent>();
+        if (_movementResolver == null)
+        {
+            _movementResolver = gameObject.AddComponent<MovementResolverComponent>();
+        }
+    }
 
     public void LocalInit(string playerId, ClientMovementBootstrap bootstrap)
     {
@@ -25,7 +41,7 @@ public class Player : MonoBehaviour
         _meshRenderer.material = _materials[idx];
 
         _playerUI.Init(this);
-        _movement.Init(true, this, bootstrap);
+        _movementResolver.Init(true, this, bootstrap);
     }
 
     public void RemoteInit(string playerId, UnityEngine.Vector3 pos)
@@ -40,7 +56,7 @@ public class Player : MonoBehaviour
         this.transform.position = pos;
 
         _playerUI.Init(this);
-        _movement.Init(false, this);
+        _movementResolver.Init(false, this);
     }
 
     private void OnApplicationQuit()
@@ -59,7 +75,7 @@ public class Player : MonoBehaviour
         }
 
         _playerUI?.SyncAuthoritativeState(snapshot, CombatPresentation);
-        _movement?.OnAuthoritativeState(snapshot);
+        _movementResolver?.OnAuthoritativeState(snapshot);
     }
 
     public bool ApplyCombatEvent(CombatEvent combatEvent)
@@ -75,6 +91,6 @@ public class Player : MonoBehaviour
 
     public void SyncTick(long serverTick)
     {
-        _movement.SetServerTick(serverTick);
+        _movementResolver.SetServerTick(serverTick);
     }
 }

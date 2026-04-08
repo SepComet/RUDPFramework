@@ -135,20 +135,28 @@ namespace Tests.EditMode.Network
                 var rigidbody = gameObject.AddComponent<Rigidbody>();
                 rigidbody.useGravity = false;
                 var movement = gameObject.AddComponent<MovementComponent>();
+                var resolver = gameObject.AddComponent<MovementResolverComponent>();
                 typeof(MovementComponent)
                     .GetField("_rigid", BindingFlags.Instance | BindingFlags.NonPublic)
                     .SetValue(movement, rigidbody);
-                movement.Init(true, master: null, speed: 10, serverTick: 0);
+                typeof(MovementResolverComponent)
+                    .GetField("_movement", BindingFlags.Instance | BindingFlags.NonPublic)
+                    .SetValue(resolver, movement);
+                resolver.Init(true, master: null, speed: 10, serverTick: 0);
 
-                movement.OnAuthoritativeState(new ClientAuthoritativePlayerStateSnapshot(
-                    GameplayFlowTestSupport.CreatePlayerState("player-1", 1, new Vector3(0.75f, 0f, 0f), acknowledgedMoveTick: 0)));
-                InvokeControlledFixedUpdate(movement);
-                Assert.That(rigidbody.position.x, Is.EqualTo(0.5f).Within(0.0001f));
+                resolver.OnAuthoritativeState(new ClientAuthoritativePlayerStateSnapshot(
+                    GameplayFlowTestSupport.CreatePlayerState("player-1", 1, new Vector3(0.25f, 0f, 0f), acknowledgedMoveTick: 0)));
+                InvokeControlledUpdate(movement);
+                Assert.That(rigidbody.position.x, Is.EqualTo(0.0375f).Within(0.0001f));
+                Assert.That(GetPrivateVector3(resolver, "_predictedPosition").x, Is.EqualTo(0.25f).Within(0.0001f));
 
-                movement.OnAuthoritativeState(new ClientAuthoritativePlayerStateSnapshot(
-                    GameplayFlowTestSupport.CreatePlayerState("player-1", 2, new Vector3(1f, 0f, 0f), acknowledgedMoveTick: 0)));
-                InvokeControlledFixedUpdate(movement);
-                Assert.That(rigidbody.position.x, Is.EqualTo(1f).Within(0.0001f));
+                resolver.OnAuthoritativeState(new ClientAuthoritativePlayerStateSnapshot(
+                    GameplayFlowTestSupport.CreatePlayerState("player-1", 2, new Vector3(0.5f, 0f, 0f), acknowledgedMoveTick: 0)));
+                InvokeControlledUpdate(movement);
+                Assert.That(GetPrivateVector3(resolver, "_predictedPosition").x, Is.EqualTo(0.5f).Within(0.0001f));
+                Assert.That(movement.TargetPosition.x, Is.EqualTo(0.5f).Within(0.0001f));
+                Assert.That(rigidbody.position.x, Is.GreaterThan(0.0375f));
+                Assert.That(rigidbody.position.x, Is.LessThan(0.5f));
             }
             finally
             {
@@ -157,46 +165,72 @@ namespace Tests.EditMode.Network
         }
 
         [Test]
-        public void ClientGameplayFlow_ControlledPlayerReconciliation_EscalatesToSnapAfterFailedConvergence()
+        public void ClientGameplayFlow_ControlledPlayerReconciliation_EscalatesToSnapForLargeDivergence()
         {
-            // NOTE: This test verifies the hard-snap escalation path.
-            // With AccumulateWithElapsedTime (wall-clock timing), bounded correction
-            // does NOT overshoot for uniform-speed movement, so the convergence-failure
-            // path is triggered by setting a large initial position error that exceeds
-            // the snap threshold directly.
             var gameObject = new GameObject("controlled-player");
             try
             {
                 var rigidbody = gameObject.AddComponent<Rigidbody>();
                 rigidbody.useGravity = false;
                 var movement = gameObject.AddComponent<MovementComponent>();
+                var resolver = gameObject.AddComponent<MovementResolverComponent>();
                 typeof(MovementComponent)
                     .GetField("_rigid", BindingFlags.Instance | BindingFlags.NonPublic)
                     .SetValue(movement, rigidbody);
-                movement.Init(true, master: null, speed: 10, serverTick: 0);
+                typeof(MovementResolverComponent)
+                    .GetField("_movement", BindingFlags.Instance | BindingFlags.NonPublic)
+                    .SetValue(resolver, movement);
+                resolver.Init(true, master: null, speed: 10, serverTick: 0);
 
-                // tick=1, pos=3.0. Client is at 0. Error=3.0 > SnapPositionThreshold (2.5),
-                // so hard snap triggers immediately without bounded correction.
-                movement.OnAuthoritativeState(new ClientAuthoritativePlayerStateSnapshot(
+                resolver.OnAuthoritativeState(new ClientAuthoritativePlayerStateSnapshot(
                     GameplayFlowTestSupport.CreatePlayerState("player-1", 1, new Vector3(3.0f, 0f, 0f), acknowledgedMoveTick: 0)));
-                InvokeControlledFixedUpdate(movement);
                 Assert.That(rigidbody.position.x, Is.EqualTo(3.0f).Within(0.0001f),
-                    "Hard snap should fire immediately when error exceeds snap threshold");
+                    "Large divergence should snap the visible pose immediately to predicted pose.");
+                Assert.That(GetPrivateVector3(resolver, "_predictedPosition").x, Is.EqualTo(3.0f).Within(0.0001f));
+                Assert.That(movement.TargetPosition.x, Is.EqualTo(3.0f).Within(0.0001f));
+            }
+            finally
+            {
+                Object.DestroyImmediate(gameObject);
+            }
+        }
 
-                // tick=2, pos=3.5. Error=0.5 < snap threshold (2.5). Bounded correction
-                // (0.5) converges exactly. No pending inputs (Time.time=0 in EditMode).
-                movement.OnAuthoritativeState(new ClientAuthoritativePlayerStateSnapshot(
-                    GameplayFlowTestSupport.CreatePlayerState("player-1", 2, new Vector3(3.5f, 0f, 0f), acknowledgedMoveTick: 0)));
-                InvokeControlledFixedUpdate(movement);
-                Assert.That(rigidbody.position.x, Is.EqualTo(3.5f).Within(0.0001f),
-                    "Bounded correction should converge exactly for small error");
+        [Test]
+        public void ClientGameplayFlow_ControlledPlayerReconciliation_RebuildsPredictionImmediatelyAndPreservesUnacknowledgedInputs()
+        {
+            var gameObject = new GameObject("controlled-player");
+            try
+            {
+                var rigidbody = gameObject.AddComponent<Rigidbody>();
+                rigidbody.useGravity = false;
+                var movement = gameObject.AddComponent<MovementComponent>();
+                var resolver = gameObject.AddComponent<MovementResolverComponent>();
+                typeof(MovementComponent)
+                    .GetField("_rigid", BindingFlags.Instance | BindingFlags.NonPublic)
+                    .SetValue(movement, rigidbody);
+                typeof(MovementResolverComponent)
+                    .GetField("_movement", BindingFlags.Instance | BindingFlags.NonPublic)
+                    .SetValue(resolver, movement);
+                resolver.Init(true, master: null, speed: 10, serverTick: 0);
 
-                // tick=3, pos=4.0. Error=0.5. Bounded correction (0.5) converges exactly.
-                movement.OnAuthoritativeState(new ClientAuthoritativePlayerStateSnapshot(
-                    GameplayFlowTestSupport.CreatePlayerState("player-1", 3, new Vector3(4.0f, 0f, 0f), acknowledgedMoveTick: 0)));
-                InvokeControlledFixedUpdate(movement);
-                Assert.That(rigidbody.position.x, Is.EqualTo(4.0f).Within(0.0001f),
-                    "Bounded correction should continue converging for consecutive small errors");
+                var predictionBuffer = (ClientPredictionBuffer)typeof(MovementResolverComponent)
+                    .GetField("_predictionBuffer", BindingFlags.Instance | BindingFlags.NonPublic)
+                    .GetValue(resolver);
+                predictionBuffer.Record(new MoveInput
+                {
+                    PlayerId = "player-1",
+                    Tick = 1,
+                    TurnInput = 0f,
+                    ThrottleInput = 1f
+                });
+                predictionBuffer.AccumulateLatest(0.1f);
+
+                resolver.OnAuthoritativeState(new ClientAuthoritativePlayerStateSnapshot(
+                    GameplayFlowTestSupport.CreatePlayerState("player-1", 1, Vector3.zero, acknowledgedMoveTick: 0)));
+
+                Assert.That(GetPrivateVector3(resolver, "_predictedPosition").z, Is.EqualTo(1f).Within(0.0001f));
+                Assert.That(predictionBuffer.PendingInputs.Count, Is.EqualTo(1));
+                Assert.That(predictionBuffer.PendingInputs[0].Input.Tick, Is.EqualTo(1));
             }
             finally
             {
@@ -236,10 +270,17 @@ namespace Tests.EditMode.Network
             Assert.That(clamped.LatestSnapshot.Tick, Is.EqualTo(11));
             Assert.That(clamped.Position, Is.EqualTo(new Vector3(10f, 0f, 0f)));
         }
-        private static void InvokeControlledFixedUpdate(MovementComponent movement)
+        private static Vector3 GetPrivateVector3(MovementResolverComponent resolver, string fieldName)
+        {
+            return (Vector3)typeof(MovementResolverComponent)
+                .GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic)
+                .GetValue(resolver);
+        }
+
+        private static void InvokeControlledUpdate(MovementComponent movement)
         {
             typeof(MovementComponent)
-                .GetMethod("FixedUpdate", BindingFlags.Instance | BindingFlags.NonPublic)
+                .GetMethod("Update", BindingFlags.Instance | BindingFlags.NonPublic)
                 .Invoke(movement, null);
         }
     }

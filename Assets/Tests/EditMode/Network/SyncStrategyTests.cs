@@ -252,7 +252,7 @@ namespace Tests.EditMode.Network
             Assert.That(snapshot.Position, Is.EqualTo(new Vector3(5f, 0f, -3f)));
             Assert.That(snapshot.Velocity, Is.EqualTo(new Vector3(1.5f, 0f, 0.25f)));
             Assert.That(snapshot.Rotation, Is.EqualTo(90f));
-            Assert.That(snapshot.RotationQuaternion.eulerAngles.y, Is.EqualTo(0f).Within(0.01f));
+            Assert.That(snapshot.RotationQuaternion.eulerAngles.y, Is.EqualTo(90f).Within(0.01f));
             Assert.That(snapshot.Hp, Is.EqualTo(73));
         }
 
@@ -472,7 +472,7 @@ namespace Tests.EditMode.Network
             Assert.That(sample.HasValue, Is.True);
             Assert.That(sample.UsedInterpolation, Is.False);
             Assert.That(sample.Position, Is.EqualTo(new Vector3(2f, 0f, -1f)));
-            Assert.That(sample.Rotation.eulerAngles.y, Is.EqualTo(75f).Within(0.01f));
+            Assert.That(sample.Rotation.eulerAngles.y, Is.EqualTo(15f).Within(0.01f));
             Assert.That(sample.LatestSnapshot.Tick, Is.EqualTo(12));
         }
 
@@ -514,10 +514,14 @@ namespace Tests.EditMode.Network
                 var rigidbody = gameObject.AddComponent<Rigidbody>();
                 rigidbody.useGravity = false;
                 var movement = gameObject.AddComponent<MovementComponent>();
+                var resolver = gameObject.AddComponent<MovementResolverComponent>();
                 typeof(MovementComponent)
                     .GetField("_rigid", BindingFlags.Instance | BindingFlags.NonPublic)
                     .SetValue(movement, rigidbody);
-                movement.Init(true, master: null, speed: 10, serverTick: 0);
+                typeof(MovementResolverComponent)
+                    .GetField("_movement", BindingFlags.Instance | BindingFlags.NonPublic)
+                    .SetValue(resolver, movement);
+                resolver.Init(true, master: null, speed: 10, serverTick: 0);
 
                 ResetMovementState(rigidbody, Vector3.zero, Quaternion.identity);
 
@@ -527,9 +531,8 @@ namespace Tests.EditMode.Network
                 var totalDuration = stepDuration * 3;  // 0.15s
 
                 // Act — step-by-step path (live prediction shape).
-                ApplyTankMovementStepByStep(movement, turnInput, throttleInput, stepDuration, steps: 3);
-                var stepByStepPosition = rigidbody.position;
-                var stepByStepRotation = rigidbody.rotation;
+                ApplyTankMovementStepByStep(turnInput, throttleInput, stepDuration, steps: 3,
+                    out var stepByStepPosition, out var stepByStepRotation);
 
                 // Reset to initial state.
                 ResetMovementState(rigidbody, Vector3.zero, Quaternion.identity);
@@ -541,9 +544,9 @@ namespace Tests.EditMode.Network
                         new MoveInput { PlayerId = "player-1", Tick = 1, TurnInput = turnInput, ThrottleInput = throttleInput },
                         totalDuration)
                 };
-                InvokeReplayPendingInputs(movement, accumulatedReplayInputs);
-                var accumulatedPosition = rigidbody.position;
-                var accumulatedRotation = rigidbody.rotation;
+                InvokeReplayPendingInputs(resolver, accumulatedReplayInputs);
+                var accumulatedPosition = GetPrivateVector3(resolver, "_predictedPosition");
+                var accumulatedRotation = GetPrivateQuaternion(resolver, "_predictedRotation");
 
                 // Assert: for straight movement (turn=0), both paths should be identical.
                 Assert.That(Vector3.Distance(accumulatedPosition, stepByStepPosition), Is.LessThan(0.0001f),
@@ -567,10 +570,14 @@ namespace Tests.EditMode.Network
                 var rigidbody = gameObject.AddComponent<Rigidbody>();
                 rigidbody.useGravity = false;
                 var movement = gameObject.AddComponent<MovementComponent>();
+                var resolver = gameObject.AddComponent<MovementResolverComponent>();
                 typeof(MovementComponent)
                     .GetField("_rigid", BindingFlags.Instance | BindingFlags.NonPublic)
                     .SetValue(movement, rigidbody);
-                movement.Init(true, master: null, speed: 10, serverTick: 0);
+                typeof(MovementResolverComponent)
+                    .GetField("_movement", BindingFlags.Instance | BindingFlags.NonPublic)
+                    .SetValue(resolver, movement);
+                resolver.Init(true, master: null, speed: 10, serverTick: 0);
 
                 ResetMovementState(rigidbody, Vector3.zero, Quaternion.identity);
 
@@ -583,15 +590,15 @@ namespace Tests.EditMode.Network
                 var totalDuration = stepDuration * steps;
 
                 // Act — step-by-step (correct approach).
-                ApplyTankMovementStepByStep(movement, turnInput, throttleInput, stepDuration, steps);
-                var stepByStepPosition = rigidbody.position;
+                ApplyTankMovementStepByStep(turnInput, throttleInput, stepDuration, steps,
+                    out var stepByStepPosition, out _);
 
                 // Reset.
                 ResetMovementState(rigidbody, Vector3.zero, Quaternion.identity);
 
                 // Act — ONE big step simulating the old buggy accumulated behavior.
-                ApplyTankMovementStepByStep(movement, turnInput, throttleInput, totalDuration, steps: 1);
-                var oneShotPosition = rigidbody.position;
+                ApplyTankMovementStepByStep(turnInput, throttleInput, totalDuration, steps: 1,
+                    out var oneShotPosition, out _);
 
                 // Assert: for non-zero turn with many steps, the old one-shot and correct step-by-step MUST differ.
                 Assert.That(Vector3.Distance(oneShotPosition, stepByStepPosition), Is.GreaterThan(0.001f),
@@ -615,10 +622,14 @@ namespace Tests.EditMode.Network
                 var rigidbody = gameObject.AddComponent<Rigidbody>();
                 rigidbody.useGravity = false;
                 var movement = gameObject.AddComponent<MovementComponent>();
+                var resolver = gameObject.AddComponent<MovementResolverComponent>();
                 typeof(MovementComponent)
                     .GetField("_rigid", BindingFlags.Instance | BindingFlags.NonPublic)
                     .SetValue(movement, rigidbody);
-                movement.Init(true, master: null, speed: 10, serverTick: 0);
+                typeof(MovementResolverComponent)
+                    .GetField("_movement", BindingFlags.Instance | BindingFlags.NonPublic)
+                    .SetValue(resolver, movement);
+                resolver.Init(true, master: null, speed: 10, serverTick: 0);
 
                 ResetMovementState(rigidbody, Vector3.zero, Quaternion.identity);
 
@@ -628,9 +639,8 @@ namespace Tests.EditMode.Network
                 var steps = 2;  // 0.10s total
 
                 // Act — live prediction: step-by-step ApplyTankMovement (correct shape).
-                ApplyTankMovementStepByStep(movement, turnInput, throttleInput, stepDuration, steps);
-                var livePosition = rigidbody.position;
-                var liveRotation = rigidbody.rotation;
+                ApplyTankMovementStepByStep(turnInput, throttleInput, stepDuration, steps,
+                    out var livePosition, out var liveRotation);
 
                 // Reset.
                 ResetMovementState(rigidbody, Vector3.zero, Quaternion.identity);
@@ -642,9 +652,9 @@ namespace Tests.EditMode.Network
                         new MoveInput { PlayerId = "player-1", Tick = 1, TurnInput = turnInput, ThrottleInput = throttleInput },
                         stepDuration * steps)
                 };
-                InvokeReplayPendingInputs(movement, replayInputs);
-                var replayPosition = rigidbody.position;
-                var replayRotation = rigidbody.rotation;
+                InvokeReplayPendingInputs(resolver, replayInputs);
+                var replayPosition = GetPrivateVector3(resolver, "_predictedPosition");
+                var replayRotation = GetPrivateQuaternion(resolver, "_predictedRotation");
 
                 // Assert: both paths must produce identical trajectories.
                 Assert.That(Vector3.Distance(replayPosition, livePosition), Is.LessThan(0.0001f),
@@ -703,9 +713,9 @@ namespace Tests.EditMode.Network
         }
 
         [Test]
-        public void MovementComponent_SetServerTick_DoesNotOscillateWithinDeadBand()
+        public void MovementComponent_SetServerTick_TracksLatestServerOffset()
         {
-            // Arrange: set up MovementComponent and initialize controlled state.
+            // Arrange: set up movement resolver and initialize controlled state.
             var gameObject = new GameObject("send-interval-test");
             try
             {
@@ -713,25 +723,25 @@ namespace Tests.EditMode.Network
                 rigidbody.useGravity = false;
                 rigidbody.interpolation = RigidbodyInterpolation.None;
                 var movement = gameObject.AddComponent<MovementComponent>();
+                var resolver = gameObject.AddComponent<MovementResolverComponent>();
                 typeof(MovementComponent)
                     .GetField("_rigid", BindingFlags.Instance | BindingFlags.NonPublic)
                     .SetValue(movement, rigidbody);
-                movement.Init(true, master: null, speed: 10, serverTick: 0);
+                typeof(MovementResolverComponent)
+                    .GetField("_movement", BindingFlags.Instance | BindingFlags.NonPublic)
+                    .SetValue(resolver, movement);
+                resolver.Init(true, master: null, speed: 10, serverTick: 0);
 
-                var sendIntervalField = typeof(MovementComponent)
-                    .GetField("_sendInterval", BindingFlags.Instance | BindingFlags.NonPublic);
+                var currentOffsetField = typeof(MovementResolverComponent)
+                    .GetField("_currentTickOffset", BindingFlags.Instance | BindingFlags.NonPublic);
 
-                // Set an initial interval as baseline.
-                sendIntervalField.SetValue(movement, 0.05f);
-
-                // Act/Assert: offsets within [-2, +2] dead-band do not change the interval.
-                // Simulate offset hovering around zero.
+                // Act/Assert: server tick updates the cached latest offset deterministically.
                 for (var i = -2; i <= 2; i++)
                 {
-                    movement.SetServerTick(i);  // Tick=0, so offset = i - 0 - 0 = i
-                    var interval = (float)sendIntervalField.GetValue(movement);
-                    Assert.That(interval, Is.EqualTo(0.05f).Within(0.0001f),
-                        $"Offset {i} should not trigger send interval correction within dead-band.");
+                    resolver.SetServerTick(i);  // Tick=0, so offset = i - 0 - 0 = i
+                    var currentOffset = (long)currentOffsetField.GetValue(resolver);
+                    Assert.That(currentOffset, Is.EqualTo(i),
+                        $"Server tick {i} should map to the same cached offset when Tick and start offset are zero.");
                 }
             }
             finally
@@ -750,10 +760,14 @@ namespace Tests.EditMode.Network
                 var rigidbody = gameObject.AddComponent<Rigidbody>();
                 rigidbody.useGravity = false;
                 var movement = gameObject.AddComponent<MovementComponent>();
+                var resolver = gameObject.AddComponent<MovementResolverComponent>();
                 typeof(MovementComponent)
                     .GetField("_rigid", BindingFlags.Instance | BindingFlags.NonPublic)
                     .SetValue(movement, rigidbody);
-                movement.Init(true, master: null, speed: 10, serverTick: 0);
+                typeof(MovementResolverComponent)
+                    .GetField("_movement", BindingFlags.Instance | BindingFlags.NonPublic)
+                    .SetValue(resolver, movement);
+                resolver.Init(true, master: null, speed: 10, serverTick: 0);
 
                 ResetMovementState(rigidbody, Vector3.zero, Quaternion.identity);
 
@@ -767,8 +781,8 @@ namespace Tests.EditMode.Network
                         new MoveInput { PlayerId = "player-1", Tick = 1, TurnInput = turnInput, ThrottleInput = throttleInput },
                         totalDuration)
                 };
-                InvokeReplayPendingInputs(movement, replayInputs);
-                var finalPosition = rigidbody.position;
+                InvokeReplayPendingInputs(resolver, replayInputs);
+                var finalPosition = GetPrivateVector3(resolver, "_predictedPosition");
 
                 // Expected: 0.12s at speed=10 → 1.2 units forward.
                 var expectedPosition = new Vector3(0f, 0f, 1.2f);
@@ -781,13 +795,14 @@ namespace Tests.EditMode.Network
             }
         }
 
-        private static void ApplyTankMovementStepByStep(MovementComponent movement, float turnInput, float throttleInput, float stepDuration, int steps)
+        private static void ApplyTankMovementStepByStep(float turnInput, float throttleInput, float stepDuration, int steps,
+            out Vector3 position, out Quaternion rotation)
         {
-            var method = typeof(MovementComponent)
-                .GetMethod("ApplyTankMovement", BindingFlags.Instance | BindingFlags.NonPublic);
+            position = Vector3.zero;
+            rotation = Quaternion.identity;
             for (var i = 0; i < steps; i++)
             {
-                method.Invoke(movement, new object[] { turnInput, throttleInput, stepDuration });
+                TankMovementKinematics.ApplyStep(10, turnInput, throttleInput, stepDuration, ref position, ref rotation);
             }
         }
 
@@ -799,11 +814,34 @@ namespace Tests.EditMode.Network
             rigidbody.angularVelocity = Vector3.zero;
         }
 
-        private static void InvokeReplayPendingInputs(MovementComponent movement, IReadOnlyList<PredictedMoveStep> inputs)
+        private static void InvokeReplayPendingInputs(MovementResolverComponent resolver, IReadOnlyList<PredictedMoveStep> inputs)
         {
-            typeof(MovementComponent)
+            SetPrivateField(resolver, "_predictedPosition", Vector3.zero);
+            SetPrivateField(resolver, "_predictedRotation", Quaternion.identity);
+            typeof(MovementResolverComponent)
                 .GetMethod("ReplayPendingInputs", BindingFlags.Instance | BindingFlags.NonPublic)
-                .Invoke(movement, new object[] { inputs });
+                .Invoke(resolver, new object[] { inputs });
+        }
+
+        private static Vector3 GetPrivateVector3(MovementResolverComponent resolver, string fieldName)
+        {
+            return (Vector3)typeof(MovementResolverComponent)
+                .GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic)
+                .GetValue(resolver);
+        }
+
+        private static Quaternion GetPrivateQuaternion(MovementResolverComponent resolver, string fieldName)
+        {
+            return (Quaternion)typeof(MovementResolverComponent)
+                .GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic)
+                .GetValue(resolver);
+        }
+
+        private static void SetPrivateField(MovementResolverComponent resolver, string fieldName, object value)
+        {
+            typeof(MovementResolverComponent)
+                .GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic)
+                .SetValue(resolver, value);
         }
 
         [Test]

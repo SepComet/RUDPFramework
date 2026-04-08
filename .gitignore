@@ -82,7 +82,7 @@ crashlytics-build.properties
 *.xmind
 /.dotnet
 /.dotnet-home
-
+/openspec/changes/archive
 
 EditMode-err.txt
 

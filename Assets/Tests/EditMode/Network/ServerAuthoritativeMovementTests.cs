@@ -17,7 +17,7 @@ namespace Tests.EditMode.Network
         private static readonly IPEndPoint PeerB = new(IPAddress.Loopback, 9102);
 
         [Test]
-        public void UpdateAuthoritativeMovement_UsesConfiguredSimulationCadence_AndExposesItOnRuntime()
+        public void UpdateAuthoritativeMovement_UsesConfiguredSimulationCadence_AndRequiresFreshInputEachStep()
         {
             var createdTransports = new Dictionary<int, FakeTransport>();
             var configuration = new ServerRuntimeConfiguration(9000)
@@ -61,7 +61,8 @@ namespace Tests.EditMode.Network
             runtime.UpdateAuthoritativeMovement(TimeSpan.FromMilliseconds(50));
 
             Assert.That(runtime.TryGetAuthoritativeMovementState(PeerA, out var stateAfterSecondStep), Is.True);
-            Assert.That(stateAfterSecondStep.PositionZ, Is.EqualTo(0.4f).Within(0.0001f));
+            Assert.That(stateAfterSecondStep.PositionZ, Is.EqualTo(0.2f).Within(0.0001f));
+            Assert.That(stateAfterSecondStep.VelocityZ, Is.EqualTo(0f).Within(0.0001f));
             Assert.That(createdTransports[9000].BroadcastMessages.Count, Is.EqualTo(1));
         }
 
@@ -168,8 +169,8 @@ namespace Tests.EditMode.Network
             Assert.That(firstBroadcast.PlayerId, Is.EqualTo("player-a"));
             Assert.That(firstBroadcast.Tick, Is.EqualTo(1));
             Assert.That(firstBroadcast.AcknowledgedMoveTick, Is.EqualTo(1));
-            Assert.That(firstBroadcast.Position.Z, Is.EqualTo(1f).Within(0.0001f));
-            Assert.That(firstBroadcast.Velocity.Z, Is.EqualTo(10f).Within(0.0001f));
+            Assert.That(firstBroadcast.Position.Z, Is.EqualTo(0.5f).Within(0.0001f));
+            Assert.That(firstBroadcast.Velocity.Z, Is.EqualTo(0f).Within(0.0001f));
             Assert.That(firstBroadcast.Velocity.X, Is.EqualTo(0f).Within(0.0001f));
 
             createdTransports[9001].EmitReceive(BuildEnvelope(MessageType.MoveInput, new MoveInput
@@ -192,7 +193,7 @@ namespace Tests.EditMode.Network
             var secondBroadcast = ParsePlayerState(createdTransports[9001].BroadcastMessages[1]);
             Assert.That(secondBroadcast.Tick, Is.EqualTo(2));
             Assert.That(secondBroadcast.AcknowledgedMoveTick, Is.EqualTo(2));
-            Assert.That(secondBroadcast.Position.Z, Is.EqualTo(1f).Within(0.0001f));
+            Assert.That(secondBroadcast.Position.Z, Is.EqualTo(0.5f).Within(0.0001f));
             Assert.That(secondBroadcast.Velocity.Z, Is.EqualTo(0f).Within(0.0001f));
             Assert.That(secondBroadcast.Velocity.X, Is.EqualTo(0f).Within(0.0001f));
         }

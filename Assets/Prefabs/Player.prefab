@@ -425,6 +425,7 @@ GameObject:
   - component: {fileID: 8938569698484985372}
   - component: {fileID: -1362768914916555191}
   - component: {fileID: -8136683798838004576}
+  - component: {fileID: -5923497047956986603}
   m_Layer: 0
   m_Name: Player
   m_TagString: Untagged
@@ -520,6 +521,7 @@ MonoBehaviour:
   - {fileID: 2100000, guid: 2955df004504a714e947e2971499d036, type: 2}
   _camera: {fileID: 6308356813655391139}
   _movement: {fileID: 5069958635149219085}
+  _movementResolver: {fileID: -5923497047956986603}
   _playerUI: {fileID: 6308356813253026696}
   _isControlled: 0
 --- !u!114 &5069958635149219085
@@ -534,11 +536,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: db8117151f564304bae153aa55c0a960, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _speed: 2
   _rigid: {fileID: -1362768914916555191}
-  _inputComponent: {fileID: 8938569698484985372}
-  _applyServerCorrection: 1
-  _lerpRate: 0.1
 --- !u!114 &8938569698484985372
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -601,3 +599,19 @@ BoxCollider:
   serializedVersion: 3
   m_Size: {x: 1, y: 1, z: 1}
   m_Center: {x: 0, y: 0, z: 0}
+--- !u!114 &-5923497047956986603
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6308356814245253661}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: fcfebc0989c4bf04cacf1c633d49a8bb, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _speed: 2
+  _movement: {fileID: 5069958635149219085}
+  _inputComponent: {fileID: 8938569698484985372}
+  _applyServerCorrection: 1

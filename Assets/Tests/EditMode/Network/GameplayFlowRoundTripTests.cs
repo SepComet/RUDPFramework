@@ -207,7 +207,7 @@ namespace Tests.EditMode.Network
                 clientRuntime.MessageManager,
                 "player-a",
                 3,
-                Vector3.right);
+                Vector3.forward);
 
             Assert.That(clientReliableTransport.SentMessages.Count, Is.EqualTo(1));
             var outboundEnvelope = Envelope.Parser.ParseFrom(clientReliableTransport.SentMessages[0]);
