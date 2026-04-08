@@ -89,6 +89,7 @@ namespace Tests.EditMode.Network
             buffer.Record(new MoveInput { PlayerId = "player-1", Tick = 10, ThrottleInput = 1f });
             buffer.Record(new MoveInput { PlayerId = "player-1", Tick = 11, ThrottleInput = 1f });
             buffer.Record(new MoveInput { PlayerId = "player-1", Tick = 12, ThrottleInput = 1f });
+            buffer.MarkInputSimulated(12, 0.05f);
 
             var accepted = buffer.TryApplyAuthoritativeState(
                 new PlayerState { PlayerId = "player-1", Tick = 11, AcknowledgedMoveTick = 11 },
@@ -100,8 +101,23 @@ namespace Tests.EditMode.Network
             Assert.That(buffer.LastAcknowledgedMoveTick, Is.EqualTo(11));
             Assert.That(replayInputs.Count, Is.EqualTo(1));
             Assert.That(replayInputs[0].Input.Tick, Is.EqualTo(12));
-            Assert.That(replayInputs[0].SimulatedDurationSeconds, Is.EqualTo(0f));
+            Assert.That(replayInputs[0].SimulatedDurationSeconds, Is.EqualTo(0.05f).Within(0.0001f));
             Assert.That(buffer.PendingInputs.Count, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void ClientPredictionBuffer_TryGetNextUnsimulatedInput_UsesOldestPendingMoveInput()
+        {
+            var buffer = new ClientPredictionBuffer();
+            buffer.Record(new MoveInput { PlayerId = "player-1", Tick = 10, ThrottleInput = 1f });
+            buffer.Record(new MoveInput { PlayerId = "player-1", Tick = 11, ThrottleInput = -1f });
+            buffer.MarkInputSimulated(10, 0.05f);
+
+            var found = buffer.TryGetNextUnsimulatedInput(out var nextInput);
+
+            Assert.That(found, Is.True);
+            Assert.That(nextInput.Input.Tick, Is.EqualTo(11));
+            Assert.That(nextInput.SimulatedDurationSeconds, Is.EqualTo(0f));
         }
 
         [Test]
@@ -802,8 +818,14 @@ namespace Tests.EditMode.Network
             rotation = Quaternion.identity;
             for (var i = 0; i < steps; i++)
             {
-                TankMovementKinematics.ApplyStep(10, turnInput, throttleInput, stepDuration, ref position, ref rotation);
+                TankMovementKinematics.ApplyStep(10, ToSimulationTurnInput(turnInput), throttleInput, stepDuration,
+                    ref position, ref rotation);
             }
+        }
+
+        private static float ToSimulationTurnInput(float networkTurnInput)
+        {
+            return -networkTurnInput;
         }
 
         private static void ResetMovementState(Rigidbody rigidbody, Vector3 position, Quaternion rotation)

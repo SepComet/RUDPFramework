@@ -7,7 +7,8 @@ using Vector3 = UnityEngine.Vector3;
 public class MovementResolverComponent : MonoBehaviour
 {
     private const float ServerSimulationStepSeconds = 0.05f;
-    private const float SnapThreshold = 0.5f;
+    [SerializeField] private float SnapThreshold = 0.5f;
+    private const float TurnSpeedDegreesPerSecond = 180f;
 
     [SerializeField] private int _speed = 2;
     [SerializeField] private MovementComponent _movement;
@@ -54,7 +55,7 @@ public class MovementResolverComponent : MonoBehaviour
 
         if (_movement != null)
         {
-            _movement.Init(isControlled);
+            _movement.Init(isControlled, _speed, TurnSpeedDegreesPerSecond);
             _authoritativePosition = _movement.CurrentPosition;
             _authoritativeRotation = _movement.CurrentRotation;
             _predictedPosition = _movement.CurrentPosition;
@@ -118,14 +119,14 @@ public class MovementResolverComponent : MonoBehaviour
             _simulationAccumulator += Time.fixedDeltaTime;
             while (_simulationAccumulator >= ServerSimulationStepSeconds)
             {
-                var pendingCount = _predictionBuffer.PendingInputs.Count;
-                if (pendingCount == 0)
+                if (!_predictionBuffer.TryGetNextUnsimulatedInput(out var nextInput))
                 {
                     _simulationAccumulator = 0f;
                     break;
                 }
 
-                Simulate(GetLatestPredictedInput());
+                Simulate(nextInput.Input);
+                _predictionBuffer.MarkInputSimulated(nextInput.Input.Tick, ServerSimulationStepSeconds);
                 _simulationAccumulator -= ServerSimulationStepSeconds;
             }
 
@@ -139,12 +140,17 @@ public class MovementResolverComponent : MonoBehaviour
         }
     }
 
-    private void Simulate(Vector3 input)
+    private void Simulate(MoveInput moveInput)
     {
-        TankMovementKinematics.ApplyStep(_speed, input.x, input.z, ServerSimulationStepSeconds,
+        var simulationTurnInput = ToSimulationTurnInput(moveInput.TurnInput);
+        TankMovementKinematics.ApplyStep(
+            _speed,
+            simulationTurnInput,
+            moveInput.ThrottleInput,
+            ServerSimulationStepSeconds,
             ref _predictedPosition, ref _predictedRotation);
+        _movement.SetExpectedTurnInput(simulationTurnInput);
         _movement.SetTargetPose(_predictedPosition, _predictedRotation);
-        _predictionBuffer.AccumulateLatest(ServerSimulationStepSeconds);
 
         if (MainUI.Instance != null)
         {
@@ -186,13 +192,20 @@ public class MovementResolverComponent : MonoBehaviour
         ReplayPendingInputs(replayInputs);
 
         var error = Vector3.Distance(_movement.CurrentPosition, _predictedPosition);
-        if (error > SnapThreshold)
+        var shouldSnap = error > SnapThreshold;
+        Debug.Log(
+            $"[Reconcile] tick={snapshot.SourceState.Tick} ack={snapshot.AcknowledgedMoveTick} " +
+            $"error={error:F3} threshold={SnapThreshold:F3} snap={shouldSnap} " +
+            $"current=({_movement.CurrentPosition.x:F3},{_movement.CurrentPosition.y:F3},{_movement.CurrentPosition.z:F3}) " +
+            $"predicted=({_predictedPosition.x:F3},{_predictedPosition.y:F3},{_predictedPosition.z:F3}) " +
+            $"authoritative=({_authoritativePosition.x:F3},{_authoritativePosition.y:F3},{_authoritativePosition.z:F3})");
+        if (shouldSnap)
         {
             _movement.SnapToPose(_predictedPosition, _predictedRotation);
         }
         else
         {
-            _movement.SetTargetPose(_predictedPosition, _predictedRotation);
+            _movement.BlendToPoseFromCurrent(_predictedPosition, _predictedRotation);
         }
 
         _simulationAccumulator = 0f;
@@ -218,35 +231,41 @@ public class MovementResolverComponent : MonoBehaviour
         }
     }
 
-    private Vector3 GetLatestPredictedInput()
-    {
-        var pending = _predictionBuffer.PendingInputs;
-        if (pending.Count == 0)
-        {
-            return Vector3.zero;
-        }
-
-        var latest = pending[^1];
-        return new Vector3(-latest.Input.TurnInput, 0f, latest.Input.ThrottleInput);
-    }
-
     private void ReplayPendingInputs(IReadOnlyList<PredictedMoveStep> replayInputs)
     {
+        var lastSimulationTurnInput = 0f;
         foreach (var replayInput in replayInputs)
         {
             var remaining = replayInput.SimulatedDurationSeconds;
             while (remaining > 0f)
             {
                 var step = Mathf.Min(remaining, ServerSimulationStepSeconds);
+                var beforeYaw = _predictedRotation.eulerAngles.y;
+                var simulationTurnInput = ToSimulationTurnInput(replayInput.Input.TurnInput);
+                lastSimulationTurnInput = simulationTurnInput;
                 TankMovementKinematics.ApplyStep(
                     _speed,
-                    replayInput.Input.TurnInput,
+                    simulationTurnInput,
                     replayInput.Input.ThrottleInput,
                     step,
                     ref _predictedPosition,
                     ref _predictedRotation);
+                var afterYaw = _predictedRotation.eulerAngles.y;
+                Debug.Log(
+                    $"[ReplayStep] authTick={_lastAuthoritativeState?.SourceState?.Tick ?? 0} " +
+                    $"inputTick={replayInput.Input.Tick} netTurn={replayInput.Input.TurnInput:F2} simTurn={simulationTurnInput:F2} " +
+                    $"throttle={replayInput.Input.ThrottleInput:F2} step={step:F3} " +
+                    $"yaw={beforeYaw:F2}->{afterYaw:F2} " +
+                    $"predicted=({_predictedPosition.x:F3},{_predictedPosition.y:F3},{_predictedPosition.z:F3})");
                 remaining -= step;
             }
         }
+
+        _movement.SetExpectedTurnInput(lastSimulationTurnInput);
+    }
+
+    private static float ToSimulationTurnInput(float networkTurnInput)
+    {
+        return -networkTurnInput;
     }
 }

@@ -223,14 +223,23 @@ namespace Tests.EditMode.Network
                     TurnInput = 0f,
                     ThrottleInput = 1f
                 });
-                predictionBuffer.AccumulateLatest(0.1f);
+                predictionBuffer.Record(new MoveInput
+                {
+                    PlayerId = "player-1",
+                    Tick = 2,
+                    TurnInput = 0f,
+                    ThrottleInput = 1f
+                });
+                predictionBuffer.MarkInputSimulated(1, 0.05f);
+                predictionBuffer.MarkInputSimulated(2, 0.05f);
 
                 resolver.OnAuthoritativeState(new ClientAuthoritativePlayerStateSnapshot(
                     GameplayFlowTestSupport.CreatePlayerState("player-1", 1, Vector3.zero, acknowledgedMoveTick: 0)));
 
                 Assert.That(GetPrivateVector3(resolver, "_predictedPosition").z, Is.EqualTo(1f).Within(0.0001f));
-                Assert.That(predictionBuffer.PendingInputs.Count, Is.EqualTo(1));
+                Assert.That(predictionBuffer.PendingInputs.Count, Is.EqualTo(2));
                 Assert.That(predictionBuffer.PendingInputs[0].Input.Tick, Is.EqualTo(1));
+                Assert.That(predictionBuffer.PendingInputs[1].Input.Tick, Is.EqualTo(2));
             }
             finally
             {

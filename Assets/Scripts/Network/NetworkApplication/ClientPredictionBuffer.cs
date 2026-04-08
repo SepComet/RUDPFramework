@@ -1,23 +1,9 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using Network.Defines;
 
 namespace Network.NetworkApplication
 {
-    public readonly struct PredictedMoveStep
-    {
-        public PredictedMoveStep(MoveInput input, float simulatedDurationSeconds)
-        {
-            Input = input ?? throw new ArgumentNullException(nameof(input));
-            SimulatedDurationSeconds = simulatedDurationSeconds < 0f ? 0f : simulatedDurationSeconds;
-        }
-
-        public MoveInput Input { get; }
-
-        public float SimulatedDurationSeconds { get; }
-    }
-
     public sealed class ClientPredictionBuffer
     {
         private readonly List<PredictedMoveStep> pendingInputs = new();
@@ -64,33 +50,38 @@ namespace Network.NetworkApplication
             pendingInputs.Add(new PredictedMoveStep(input, 0f));
         }
 
-        public void AccumulateLatest(float simulatedDurationSeconds)
+        public bool TryGetNextUnsimulatedInput(out PredictedMoveStep predictedMoveStep)
         {
-            if (pendingInputs.Count == 0 || simulatedDurationSeconds <= 0f)
+            for (var i = 0; i < pendingInputs.Count; i++)
             {
-                return;
+                if (pendingInputs[i].SimulatedDurationSeconds <= 0f)
+                {
+                    predictedMoveStep = pendingInputs[i];
+                    return true;
+                }
             }
 
-            var latest = pendingInputs[^1];
-            pendingInputs[^1] =
-                new PredictedMoveStep(latest.Input, latest.SimulatedDurationSeconds + simulatedDurationSeconds);
+            predictedMoveStep = default;
+            return false;
         }
 
-        /// <summary>
-        /// Accumulate pending input duration using the actual elapsed wall-clock time
-        /// since the last authoritative state, not the fixed simulation cadence.
-        /// This synchronizes accumulation with the server's 20Hz authoritative cadence.
-        /// </summary>
-        public void AccumulateWithElapsedTime(float elapsedSinceLastState)
+        public void MarkInputSimulated(long tick, float simulatedDurationSeconds)
         {
-            if (pendingInputs.Count == 0 || elapsedSinceLastState <= 0f || !float.IsFinite(elapsedSinceLastState))
+            if (simulatedDurationSeconds <= 0f)
             {
                 return;
             }
 
-            var latest = pendingInputs[^1];
-            pendingInputs[^1] =
-                new PredictedMoveStep(latest.Input, latest.SimulatedDurationSeconds + elapsedSinceLastState);
+            for (var i = 0; i < pendingInputs.Count; i++)
+            {
+                if (pendingInputs[i].Input.Tick != tick)
+                {
+                    continue;
+                }
+
+                pendingInputs[i] = new PredictedMoveStep(pendingInputs[i].Input, simulatedDurationSeconds);
+                return;
+            }
         }
 
         public bool TryApplyAuthoritativeState(PlayerState state, float currentTime,
@@ -110,7 +101,7 @@ namespace Network.NetworkApplication
             LastAuthoritativeTick = state.Tick;
             LastAcknowledgedMoveTick = state.AcknowledgedMoveTick;
             pendingInputs.RemoveAll(input => input.Input.Tick <= state.AcknowledgedMoveTick);
-            replayInputs = pendingInputs.ToArray();
+            replayInputs = pendingInputs.FindAll(input => input.SimulatedDurationSeconds > 0f);
 
             // Reset the elapsed-time tracker so the next accumulation period
             // starts from this authoritative state's arrival time.
